@@ -111,7 +111,7 @@ tbody td { padding: 10px 14px; font-size: 14px; vertical-align: middle; }
 #panel-body { padding: 20px 26px 28px; font-size: 14px; line-height: 1.6; }
 #panel-body h3 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.03em; color: var(--text-dim); margin: 20px 0 6px; }
 #panel-body h3:first-child { margin-top: 0; }
-.desc :global(*) { max-width: 100%; }
+.desc * { max-width: 100%; }
 .desc-plain { white-space: pre-wrap; }
 textarea {
   width: 100%; min-height: 90px; font: inherit; padding: 8px 10px; border-radius: 6px;
