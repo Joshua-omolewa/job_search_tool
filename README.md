@@ -92,15 +92,27 @@ best-match-first.
 ### 3. Review results
 
 ```bash
-cd web
-npm install
-DB_PATH=../data/seen_jobs.sqlite3 npm run dev
-# open http://localhost:3000
+cd web && npm install    # first time only
+cd ..
+make web                              # starts the board at http://localhost:3000
 ```
 
 Reads/writes `data/seen_jobs.sqlite3` directly — no export/import step.
 See [`web/README.md`](web/README.md) for details (custom `DB_PATH`,
 production build, etc).
+
+## Makefile commands
+
+Thin wrappers over the commands above — run from the repo root:
+
+| Command        | Equivalent to                    | What it does |
+|-----------------|----------------------------------|--------------|
+| `make run`      | `python -m app.main`             | Fetch + filter (step 1). Interactively asks whether to skip companies/aggregators/discovery and whether to limit to one company slug, instead of you remembering the flags. |
+| `make evaluate` | `python -m app.ai_evaluate`       | AI evaluation (step 2). Interactively asks for `--dry-run` and an optional `--limit`. |
+| `make web`      | `npm --prefix web run dev`       | Starts the Next.js review board, with `DB_PATH` already pointed at `data/seen_jobs.sqlite3`. |
+| `make test`     | `pytest app/` + the standalone sanity-check scripts | Runs the full test suite (see the Tests section below). |
+
+`make` with no target runs `make run` (the default goal).
 
 ## Configuration
 
@@ -108,9 +120,10 @@ production build, etc).
   a company here once you've identified its ATS.
 - **`aggregators.yaml`** — aggregator search config (keywords, location,
   pagination limits).
-- **`app/filters.py`** — title allowlist/exclusion keywords, location
-  allowlist, and JD stack-dealbreaker keywords. Edited directly as you
-  refine what counts as in-scope for you.
+- **`filters.yaml`** — title allowlist/exclusion keywords, location
+  allowlist patterns, and JD stack-dealbreaker/core-stack keywords. Edit
+  this directly as you refine what counts as in-scope for you — no code
+  changes needed (matching logic lives in `app/filters.py`).
 - **`profile.yaml`** — your experience profile fed to the AI evaluation
   step (see `profile.example.yaml` for the template).
 
@@ -121,7 +134,7 @@ app/
   main.py                 orchestrates fetch -> filter -> dedup -> candidates.csv
   ats_clients.py           one fetch function per ATS
   aggregator_clients.py    one fetch function per aggregator
-  filters.py               title/location/stack filtering rules
+  filters.py               loads and applies filters.yaml's rules
   dedup.py                 SQLite store (seen_jobs, job_details)
   discover_companies.py    auto-appends newly-resolved companies to companies.yaml
   ai_evaluate.py           stage 2: Claude-based fit scoring
@@ -132,6 +145,7 @@ app/
 web/                       Next.js review board (see web/README.md)
 companies.yaml             company -> ATS registry
 aggregators.yaml           aggregator search config
+filters.yaml               title/location/stack filter rules
 profile.example.yaml       template for profile.yaml (your real profile, gitignored)
 ```
 
