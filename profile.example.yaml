@@ -1,0 +1,78 @@
+# Master experience profile — the single source of truth fed into the AI
+# evaluation step (ai_evaluate.py). Organized by functional competency, not
+# by job title, so the model judges FUNCTIONAL FIT against a role rather
+# than pattern-matching on past job titles.
+#
+# This is a TEMPLATE with placeholder content. Copy it to `profile.yaml`
+# (already gitignored — it's never committed) and replace every field with
+# your own real experience:
+#
+#   cp profile.example.yaml profile.yaml
+
+identity:
+  name: "Your Name"
+  headline: "Senior Software Engineer — Full-Stack, Technical Leader"
+  years_experience: 10
+  location: "Your City, Your Province/State"
+  location_constraints: >
+    Based in [your city]. Open to remote roles and to [region] on-site
+    or hybrid roles. Not seeking relocation.
+  education:
+    - "B.Sc. Computer Science / Software Engineering"
+
+core_stack:
+  languages_frameworks: ["Python", "JavaScript", "TypeScript", "FastAPI", "React"]
+  ai_genai: ["Prompt Engineering", "Model Evaluation", "Structured LLM Pipelines"]
+  data_infra: ["PostgreSQL", "Redis", "Docker", "AWS"]
+
+competencies:
+  backend_architecture:
+    summary: >
+      One or two sentences describing your general strength area, e.g.
+      distributed systems, API design, performance/scalability work.
+    evidence:
+      - "One concrete, quantified accomplishment (company name optional) —
+         what you built and the measurable result."
+      - "A second example, same format."
+
+  ai_genai_systems:
+    summary: >
+      Summary of GenAI/AI systems experience, if applicable.
+    evidence:
+      - "Concrete example with a measurable outcome."
+
+  technical_leadership:
+    summary: >
+      Summary of leadership/mentorship experience, if applicable.
+    evidence:
+      - "Concrete example."
+
+  fullstack_product_delivery:
+    summary: >
+      Summary of end-to-end product delivery experience.
+    evidence:
+      - "Concrete example."
+
+  cost_and_ops_impact:
+    summary: >
+      Summary of direct cost/ops impact through infra or vendor decisions.
+    evidence:
+      - "Concrete example."
+
+experience_timeline:
+  # Most recent first — for the model's context on recency/depth per stack.
+  - company: "Company A"
+    dates: "2024-2026"
+    title: "Senior Software Engineer"
+    domain: "One-line description of the domain/industry"
+    stack: ["Python", "React"]
+  - company: "Company B"
+    dates: "2020-2024"
+    title: "Software Engineer"
+    domain: "One-line description of the domain/industry"
+    stack: ["Python", "PostgreSQL"]
+
+constraints:
+  - "Any hard constraints on employer type, stage, or stability you want the model to weigh."
+  - "Role-level preference (IC vs. management track, senior vs. staff, etc.)."
+  - "Any location/relocation constraints."

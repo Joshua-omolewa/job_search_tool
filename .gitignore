@@ -1,0 +1,12 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.DS_Store
+.env
+web/node_modules/
+web/.next/
+.idea/*
+data/test_*
+data/
+profile.yaml
