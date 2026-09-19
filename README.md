@@ -38,6 +38,8 @@ is sent to a third party beyond fetching the postings themselves.
 
 ```bash
 pip install -r requirements.txt
+cp .env.example .env
+# fill in .env with the keys you need — see the comments in that file
 ```
 
 Create your experience profile from the template (this file is gitignored
@@ -48,17 +50,35 @@ cp profile.example.yaml profile.yaml
 # then edit profile.yaml with your own background
 ```
 
-If you want the AI evaluation step, set your Anthropic API key (e.g. in a
-local `.env` file, which is gitignored):
+`ANTHROPIC_API_KEY` is only needed for the AI evaluation step. Adzuna
+(`ADZUNA_APP_ID`/`ADZUNA_APP_KEY`) is only needed if you keep an Adzuna
+entry in `aggregators.yaml` — register a free key at
+[developer.adzuna.com](https://developer.adzuna.com). Remotive needs no
+auth but only covers remote roles.
 
-```bash
-ANTHROPIC_API_KEY=sk-ant-...
-```
+### Customize for your own search
 
-If you want the Adzuna aggregator, register a free key at
-[developer.adzuna.com](https://developer.adzuna.com) and set
-`ADZUNA_APP_ID` / `ADZUNA_APP_KEY` the same way. Remotive needs no auth but
-only covers remote roles.
+This repo ships pre-configured for the original author's search (Alberta/
+Canada, Python/JS stack). **Before your first run, edit these three
+files** or you'll get zero candidates, or candidates that don't match your
+actual stack:
+
+1. **`filters.yaml` → `location_allow_patterns`** — regex patterns for
+   locations to keep. Ships as Canada/Alberta-only; replace with your own
+   country/region/cities, or delete entries to broaden it. This is the
+   #1 reason a first run returns nothing — if nothing you fetch ever
+   matches these patterns, `location_is_allowed()` rejects every job.
+2. **`filters.yaml` → `stack_dealbreakers` / `stack_core`** — a JD is
+   rejected if it mentions a `stack_dealbreakers` language and none of
+   `stack_core`. Ships assuming you want Python/JS and don't want
+   Java/C#/.NET/etc. If your own stack includes one of the "dealbreaker"
+   languages, move it into `stack_core` (or the filter will reject roles
+   in your own stack).
+3. **`companies.yaml`** — the company registry. Ships with the original
+   author's real target list; add/remove companies to match who you're
+   actually applying to (see the file's header comment for the format).
+   `aggregators.yaml`'s `where` params are also location-specific —
+   update those too if you're not targeting Alberta/Canada.
 
 ## Usage
 

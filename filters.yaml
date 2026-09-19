@@ -85,10 +85,13 @@ exclusion_keywords:
   - "compliance"
   - "product marketing"
 
-# Locations to keep, as regex patterns (case-insensitive) matched against
-# the free-text location string each ATS/aggregator returns. Deliberately
-# does NOT allow a bare "Remote" with no country qualifier — some postings
-# say "Remote Poland"/"Remote Spain"/"Remote Australia" etc, so an allowlist
+# EDIT ME FIRST: locations to keep, as regex patterns (case-insensitive)
+# matched against the free-text location string each ATS/aggregator
+# returns. Ships below as Canada/Alberta-only (the original author's
+# search) — replace with your own country/region/cities, or every job
+# will get rejected regardless of how good a fit it is. Deliberately does
+# NOT allow a bare "Remote" with no country qualifier — some postings say
+# "Remote Poland"/"Remote Spain"/"Remote Australia" etc, so an allowlist
 # needs an explicit country/region signal instead.
 location_allow_patterns:
   - '\bcanada\b'
@@ -99,9 +102,13 @@ location_allow_patterns:
   - '\bontario\b'
   - '\bvancouver\b'
 
-# JD stack dealbreakers: if the description clearly requires one of these
-# languages/frameworks and does NOT also mention anything from
-# stack_core, treat it as a mismatch. Only runs when a description is
+# EDIT ME FIRST (along with stack_core below): JD stack dealbreakers — if
+# the description clearly requires one of these languages/frameworks and
+# does NOT also mention anything from stack_core, treat it as a mismatch.
+# Ships assuming a Python/JS candidate who wants to exclude
+# Java/C#/.NET/etc — if your own stack includes one of these "dealbreaker"
+# languages, move it down into stack_core instead, or this will reject
+# roles in your own stack. Only runs when a description is
 # available. Word-boundary matched to avoid e.g. "java" matching
 # "javascript". Deliberately NOT including bare "go" — too ambiguous
 # ("go-to-market", "go live", etc.); "golang" below covers it, and most Go
