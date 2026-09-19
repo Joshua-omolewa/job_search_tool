@@ -1,5 +1,7 @@
 # Job Search Pipeline
 
+
+
 An automated pipeline for a targeted job search: fetch open roles directly
 from companies' ATS APIs and job aggregators, filter out anything
 irrelevant, deduplicate against everything already seen, optionally score
@@ -10,6 +12,8 @@ Nothing here talks to any service other than the job sources you configure
 and (for the optional AI step) the Anthropic API. All state — scraped
 jobs, scores, your own notes — lives in a local SQLite database; nothing
 is sent to a third party beyond fetching the postings themselves.
+
+<img width="2532" height="1215" alt="image" src="https://github.com/user-attachments/assets/679cea89-3156-4e46-af3c-74d3e0d9b30c" />
 
 ## How it works
 
