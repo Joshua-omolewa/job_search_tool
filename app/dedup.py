@@ -18,6 +18,7 @@ quick human-scannable list. Query this table directly (see
 was included or excluded, or once ai_evaluate.py exists, to feed the JD
 into the Haiku prompt without re-fetching it.
 """
+import os
 import re
 import sqlite3
 from contextlib import contextmanager
@@ -96,6 +97,9 @@ def _migrate(conn) -> None:
 
 @contextmanager
 def connect(db_path: str = DB_PATH):
+    parent = os.path.dirname(db_path)
+    if parent:
+        os.makedirs(parent, exist_ok=True)
     conn = sqlite3.connect(db_path)
     conn.executescript(SCHEMA)
     _migrate(conn)

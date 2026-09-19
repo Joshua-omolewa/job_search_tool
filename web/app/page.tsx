@@ -102,7 +102,7 @@ export default function Page() {
       if (isPanelSave) setSaveState("saved");
     } catch (e) {
       if (isPanelSave) setSaveState("error");
-      else alert("Не удалось сохранить статус: " + (e as Error).message);
+      else alert("Failed to save status: " + (e as Error).message);
     }
   }
 
@@ -111,7 +111,7 @@ export default function Page() {
       <header>
         <h1>Job Search Board</h1>
         <div className="subtitle">
-          Read and write from/to data/seen_jobs.sqlite3 job_search_pipeline.
+          Reads and writes data/seen_jobs.sqlite3 directly — no export/import step.
         </div>
       </header>
 
@@ -138,7 +138,7 @@ export default function Page() {
         )}
         {!loading && !error && (
           rows.length === 0 ? (
-            <div className="empty-state">Ничего не найдено под текущий фильтр/поиск.</div>
+            <div className="empty-state">Nothing matches the current filter/search.</div>
           ) : (
             <JobsTable
               rows={rows}

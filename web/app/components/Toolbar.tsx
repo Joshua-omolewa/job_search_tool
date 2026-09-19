@@ -23,7 +23,7 @@ const Toolbar = ({
       <label>
         AI status
         <select value={aiStatusFilter} onChange={(e) => onAiStatusFilterChange(e.target.value)}>
-          <option value="all">Все</option>
+          <option value="all">All</option>
           <option value="apply">Apply</option>
           <option value="consider">Consider</option>
           <option value="skip">Skip</option>
@@ -46,7 +46,7 @@ const Toolbar = ({
           type="search"
           value={search}
           onChange={(e) => onSearchChange(e.target.value)}
-          placeholder="компания или тайтл..."
+          placeholder="company or title..."
         />
       </label>
       <div className="spacer" />

@@ -30,7 +30,7 @@ DB_PATH=/path/to/seen_jobs.sqlite3 npm run dev
 
 Only jobs that passed the deterministic filter (`passed_filters = 1`). Each row has:
 
-- AI status (`apply` / `consider` / `skip` / `не оценено`) — from `ai_evaluate.py`
+- AI status (`apply` / `consider` / `skip` / `not evaluated`) — from `ai_evaluate.py`
 - Your own status (`applied` / `interview` / `rejected` / `skipped` / `silence`) —
   set inline in the table or from the detail panel. Deliberately separate from the AI's
   suggestion, since one is "should I apply" and the other is "what actually happened".

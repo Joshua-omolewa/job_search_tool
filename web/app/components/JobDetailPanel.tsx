@@ -21,7 +21,7 @@ export default function JobDetailPanel({
     <div id="overlay" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
       <div id="panel">
         <div id="panel-header">
-          <button id="panel-close" onClick={onClose} aria-label="Закрыть">&times;</button>
+          <button id="panel-close" onClick={onClose} aria-label="Close">&times;</button>
           <h2>{job.title}</h2>
           <div className="panel-meta">
             {job.company} · {job.location} · <StatusBadge status={job.status} />
@@ -29,10 +29,10 @@ export default function JobDetailPanel({
           </div>
         </div>
         <div id="panel-body">
-          <h3>Мой статус</h3>
+          <h3>My status</h3>
           <div className="panel-status-row">
             <select value={draftStatus} onChange={(e) => onDraftStatusChange(e.target.value)}>
-              <option value="">— не задано —</option>
+              <option value="">— not set —</option>
               {MY_STATUS_VALUES.map((v) => (
                 <option key={v} value={v}>{MY_STATUS_LABEL[v]}</option>
               ))}
@@ -43,7 +43,7 @@ export default function JobDetailPanel({
           <textarea
             value={draftNotes}
             onChange={(e) => onDraftNotesChange(e.target.value)}
-            placeholder="например: откликнулась через referral, ждать ответа до пятницы"
+            placeholder="e.g.: applied via referral, follow up by Friday"
           />
 
           <div className="panel-actions">
