@@ -26,23 +26,36 @@ from app import filters
 
 def main(dry_run: bool = False) -> None:
     with dedup.connect() as conn:
-        candidates = list(dedup.iter_filtered_out(conn))
-        print(f"Re-checking {len(candidates)} previously filtered-out job(s)...\n")
+        filtered_out = list(dedup.iter_filtered_out(conn))
+        print(f"Re-checking {len(filtered_out)} previously filtered-out job(s)...\n")
 
         rescued = []
-        for job in candidates:
-            now_passes = filters.passes_filters(job)
-            if now_passes:
+        for job in filtered_out:
+            if filters.passes_filters(job):
                 rescued.append(job)
-                print(f"RESCUED | {job['company']:20s} | {job['title'][:55]:55s} | {job['url']}")
+                print(f"RESCUED  | {job['company']:20s} | {job['title'][:55]:55s} | {job['url']}")
                 if not dry_run:
                     dedup.set_passed_filters(conn, job["url"], True)
 
-        print(f"\n{len(rescued)}/{len(candidates)} now pass the current filters.")
+        print(f"\n{len(rescued)}/{len(filtered_out)} now pass the current filters.")
+
+        passed = list(dedup.iter_passed(conn))
+        print(f"\nRe-checking {len(passed)} previously-passed job(s) for a tightened filter...\n")
+
+        demoted = []
+        for job in passed:
+            if not filters.passes_filters(job):
+                demoted.append(job)
+                print(f"DEMOTED  | {job['company']:20s} | {job['title'][:55]:55s} | {job['url']}")
+                if not dry_run:
+                    dedup.set_passed_filters(conn, job["url"], False)
+
+        print(f"\n{len(demoted)}/{len(passed)} no longer pass the current filters.")
+
         if dry_run:
-            print("(dry run — no changes written; drop --dry-run to apply)")
+            print("\n(dry run — no changes written; drop --dry-run to apply)")
         else:
-            print("job_details.passed_filters updated. Re-run ai_evaluate.py to score the newly rescued jobs,")
+            print("\njob_details.passed_filters updated. Re-run ai_evaluate.py to score the newly rescued jobs,")
             print("and refresh the Next.js board to see them.")
 
 

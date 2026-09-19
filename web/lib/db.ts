@@ -92,6 +92,10 @@ export function getJobs(): JobRow[] {
   }));
 }
 
+export function jobExists(url: string): boolean {
+  return getDb().prepare("SELECT 1 FROM job_details WHERE url = ?").get(url) !== undefined;
+}
+
 export function saveUserStatus(url: string, myStatus: string | null, notes: string | null): void {
   getDb()
     .prepare(

@@ -18,7 +18,7 @@ export default function Page() {
   const [sortKey, setSortKey] = useState<SortKey>("match_score");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
 
-  const [selected, setSelected] = useState<Job | null>(null);
+  const [selectedUrl, setSelectedUrl] = useState<string | null>(null);
   const [draftStatus, setDraftStatus] = useState("");
   const [draftNotes, setDraftNotes] = useState("");
   const [saveState, setSaveState] = useState<SaveState>("idle");
@@ -80,8 +80,16 @@ export default function Page() {
     return r;
   }, [jobs, aiStatusFilter, myStatusFilter, search, sortKey, sortDir]);
 
+  // Derived from `jobs` by url (rather than a frozen snapshot object) so
+  // the open panel reflects the latest score/description/status after a
+  // background refresh instead of showing stale AI analysis.
+  const selected = useMemo(
+    () => jobs.find((j) => j.url === selectedUrl) ?? null,
+    [jobs, selectedUrl]
+  );
+
   function openPanel(j: Job) {
-    setSelected(j);
+    setSelectedUrl(j.url);
     setDraftStatus(j.my_status ?? "");
     setDraftNotes(j.notes ?? "");
     setSaveState("idle");
@@ -161,7 +169,7 @@ export default function Page() {
           onDraftNotesChange={setDraftNotes}
           saveState={saveState}
           onSave={() => saveStatus(selected.url, draftStatus, draftNotes, true)}
-          onClose={() => setSelected(null)}
+          onClose={() => setSelectedUrl(null)}
         />
       )}
     </>

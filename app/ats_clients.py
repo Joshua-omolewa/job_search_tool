@@ -87,7 +87,7 @@ def fetch_workable(company_display_name: str, slug: str) -> list[dict]:
     data = resp.json()
     jobs = []
     for j in data.get("jobs", []):
-        loc = j.get("location", {})
+        loc = j.get("location") or {}
         loc_str = ", ".join(filter(None, [loc.get("city"), loc.get("region"), loc.get("country")]))
         if loc.get("workplace") == "remote":
             loc_str = f"Remote ({loc_str})" if loc_str else "Remote"
@@ -181,6 +181,12 @@ def fetch_smartrecruiters(company_display_name: str, slug: str) -> list[dict]:
             job_url = p.get("applyUrl") or p.get("ref") or (
                 f"https://jobs.smartrecruiters.com/{slug}/{posting_id}" if posting_id else ""
             )
+            if not job_url:
+                # No applyUrl/ref/id to build any identifier from — skip
+                # rather than store url="", which would make dedup.is_new()
+                # treat every subsequent url-less posting as a duplicate of
+                # the first one (an exact-match dedup key collision).
+                continue
 
             description = ""
             # Only worth the extra per-job request (see

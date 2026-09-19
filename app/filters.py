@@ -37,18 +37,22 @@ STACK_DEALBREAKERS = _config["stack_dealbreakers"]
 STACK_CORE = _config["stack_core"]
 TRUNCATED_DESCRIPTION_MIN_CHARS = _config["truncated_description_min_chars"]
 
-_priority_re = re.compile(
-    "(" + "|".join(re.escape(k) for k in PRIORITY_TITLE_KEYWORDS) + ")",
-    re.IGNORECASE,
-)
-_title_allow_re = re.compile(
-    "(" + "|".join(re.escape(k) for k in TITLE_ALLOW_KEYWORDS) + ")",
-    re.IGNORECASE,
-)
-_exclusion_re = re.compile(
-    "(" + "|".join(re.escape(k) for k in EXCLUSION_KEYWORDS) + ")",
-    re.IGNORECASE,
-)
+def _compile_keyword_alternation(keywords: list[str], config_key: str) -> re.Pattern:
+    # An empty keyword list joins to "" and compiles to "()", which matches
+    # the empty string at every position — .search() would then match ANY
+    # title, silently turning an allowlist into "allow everything" and an
+    # exclusion list into "exclude everything". Fail loudly instead.
+    if not keywords:
+        raise ValueError(
+            f"filters.yaml's '{config_key}' is empty — this would silently "
+            "match every title instead of none. Add at least one keyword."
+        )
+    return re.compile("(" + "|".join(re.escape(k) for k in keywords) + ")", re.IGNORECASE)
+
+
+_priority_re = _compile_keyword_alternation(PRIORITY_TITLE_KEYWORDS, "priority_title_keywords")
+_title_allow_re = _compile_keyword_alternation(TITLE_ALLOW_KEYWORDS, "title_allow_keywords")
+_exclusion_re = _compile_keyword_alternation(EXCLUSION_KEYWORDS, "exclusion_keywords")
 _location_res = [re.compile(p, re.IGNORECASE) for p in LOCATION_ALLOW_PATTERNS]
 _dealbreaker_res = [re.compile(p, re.IGNORECASE) for p in STACK_DEALBREAKERS]
 _core_res = [re.compile(p, re.IGNORECASE) for p in STACK_CORE]
@@ -75,7 +79,7 @@ def looks_truncated(description: str) -> bool:
     posting)."""
     text = strip_html(description or "").strip()
     if not text:
-        return False
+        return True
     if text.endswith("…") or text.endswith("...") or text.rstrip().endswith(".."):
         return True
     return len(text) < TRUNCATED_DESCRIPTION_MIN_CHARS

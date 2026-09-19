@@ -39,6 +39,8 @@ export function formatDescription(raw: string): FormattedDescription {
   const decoded = decodeEntities(raw);
   if (HTML_TAG_RE.test(decoded)) return {kind: "html", html: decoded};
 
-  // Still no tags after decoding — genuinely plain text.
-  return {kind: "text", text: raw};
+  // Still no tags after decoding — genuinely plain text, but may still
+  // contain entities (e.g. "Q&amp;A" for a plain "Q&A") — use the decoded
+  // value so those render correctly instead of showing the raw escape.
+  return {kind: "text", text: decoded};
 }

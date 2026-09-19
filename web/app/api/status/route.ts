@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { saveUserStatus, MY_STATUS_VALUES } from "@/lib/db";
+import { saveUserStatus, jobExists, MY_STATUS_VALUES } from "@/lib/db";
 
 export async function POST(req: Request) {
   const body = await req.json().catch(() => null);
@@ -12,6 +12,9 @@ export async function POST(req: Request) {
       { error: `Invalid my_status '${my_status}', expected one of ${MY_STATUS_VALUES.join(", ")}` },
       { status: 400 }
     );
+  }
+  if (!jobExists(url)) {
+    return NextResponse.json({ error: `No known job for url '${url}'` }, { status: 404 });
   }
   try {
     saveUserStatus(url, my_status ?? null, notes ?? null);

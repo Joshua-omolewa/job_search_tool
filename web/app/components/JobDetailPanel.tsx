@@ -1,3 +1,4 @@
+import DOMPurify from "dompurify";
 import {MY_STATUS_LABEL, MY_STATUS_VALUES} from "@/app/constants";
 import {Job, SaveState} from "@/app/types";
 import StatusBadge from "@/app/components/StatusBadge";
@@ -71,7 +72,7 @@ export default function JobDetailPanel({
             (() => {
               const formatted = formatDescription(job.description);
               return formatted.kind === "html"
-                ? <div className="desc" dangerouslySetInnerHTML={{__html: formatted.html}} />
+                ? <div className="desc" dangerouslySetInnerHTML={{__html: DOMPurify.sanitize(formatted.html)}} />
                 : <div className="desc desc-plain">{formatted.text}</div>;
             })()
           ) : (

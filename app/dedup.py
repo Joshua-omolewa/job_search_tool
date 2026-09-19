@@ -82,8 +82,11 @@ def _normalize(text: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 
-def make_company_title_key(company: str, title: str) -> str:
-    return f"{_normalize(company)}::{_normalize(title)}"
+def make_company_title_key(company: str, title: str, location: str = "") -> str:
+    # location is part of the key so two genuinely distinct postings with
+    # the same title at the same company (e.g. "Backend Engineer" open in
+    # both Toronto and Vancouver) aren't treated as a repost of each other.
+    return f"{_normalize(company)}::{_normalize(title)}::{_normalize(location)}"
 
 
 def _migrate(conn) -> None:
@@ -111,7 +114,7 @@ def connect(db_path: str = DB_PATH):
 
 
 def is_new(conn, job: dict) -> bool:
-    key = make_company_title_key(job["company"], job["title"])
+    key = make_company_title_key(job["company"], job["title"], job.get("location", ""))
     cur = conn.execute(
         "SELECT 1 FROM seen_jobs WHERE url = ? OR company_title_key = ? LIMIT 1",
         (job["url"], key),
@@ -120,7 +123,7 @@ def is_new(conn, job: dict) -> bool:
 
 
 def mark_seen(conn, job: dict) -> None:
-    key = make_company_title_key(job["company"], job["title"])
+    key = make_company_title_key(job["company"], job["title"], job.get("location", ""))
     conn.execute(
         "INSERT OR IGNORE INTO seen_jobs (url, company_title_key, company, title) "
         "VALUES (?, ?, ?, ?)",
@@ -181,6 +184,19 @@ def iter_filtered_out(conn):
     cur = conn.execute(
         "SELECT url, company, title, location, posted_at, description "
         "FROM job_details WHERE passed_filters = 0"
+    )
+    keys = ["url", "company", "title", "location", "posted_at", "description"]
+    for row in cur.fetchall():
+        yield dict(zip(keys, row))
+
+
+def iter_passed(conn):
+    """Every job we've ever stored that DID pass the filters at fetch time
+    — the other input for refilter.py, so a TIGHTENED filter can demote
+    jobs that no longer pass, not just rescue ones that now do."""
+    cur = conn.execute(
+        "SELECT url, company, title, location, posted_at, description "
+        "FROM job_details WHERE passed_filters = 1"
     )
     keys = ["url", "company", "title", "location", "posted_at", "description"]
     for row in cur.fetchall():

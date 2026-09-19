@@ -52,7 +52,7 @@ def main():
     assert not filters.looks_truncated(
         "A" * 500 + " full-length JD text with no trailing ellipsis, well past the floor."
     )
-    assert not filters.looks_truncated("")
+    assert filters.looks_truncated("")  # empty description is the extreme case of "too short"
 
     adzuna_job = {
         "company": "Warner Music Group",
