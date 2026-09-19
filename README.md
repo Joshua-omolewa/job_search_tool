@@ -201,3 +201,7 @@ None of them call live external APIs.
   review flow.
 - Scheduling: once you're happy with a full local run, a daily cron entry
   like `0 7 * * * cd /path/to/job_search_pipeline && python -m app.main && python -m app.ai_evaluate`.
+
+## License
+
+[MIT](LICENSE)
