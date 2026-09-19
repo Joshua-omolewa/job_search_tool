@@ -1,5 +1,4 @@
-# Job Search Pipeline
-
+# AI-Powered Job Search Automation
 
 
 An automated pipeline for a targeted job search: fetch open roles directly
