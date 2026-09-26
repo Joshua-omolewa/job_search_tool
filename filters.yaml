@@ -1,143 +1,175 @@
 # Deterministic pre-filter rules, read by app/filters.py. Edit these lists
 # directly as you refine what "in scope" means for you — no code changes
 # needed. See app/filters.py's module docstring for how they're applied.
+#
+# Tuned for: Data Engineer / Senior / Staff Data Engineer / Data Platform
+# Engineer, IC track only, full-time only, Canada first + US acceptable.
 
-# Unambiguous engineering-role title signals. If the title matches one of
-# these, it's kept regardless of exclusion_keywords below — e.g. "Software
-# Engineer, Automated Marketing" shouldn't get dropped just because
-# "marketing" is also in exclusion_keywords. Keep this list short and
-# genuinely unambiguous (don't add anything from title_allow_keywords
-# that's also ambiguous, like bare "engineer" or "platform").
+# Unambiguous target-role title signals. If the title matches one of these,
+# it's kept regardless of exclusion_keywords below — e.g. "Data Engineer,
+# Marketing Analytics" shouldn't get dropped just because "marketing" is in
+# exclusion_keywords.
+# NOTE: because this list overrides exclusions, a title like "Data
+# Engineering Manager" or "Data Engineer (Contract)" can slip through here
+# if matching is plain substring. The AI evaluation step still screens
+# those out using the IC-only / full-time-only constraints in profile.yaml.
 priority_title_keywords:
-  - "software engineer"
-  - "software developer"
-  - "developer"
-  - "full stack"
-  - "fullstack"
-  - "full-stack"
+  - "data engineer" # also covers "big data engineer", "senior/staff data engineer"
+  - "data platform engineer"
+  - "data infrastructure engineer"
 
 # Title must match at least one of these to be considered at all.
+# Deliberately data-specific (no bare "engineer"/"developer"/"platform") so
+# generic software, frontend, and hardware roles don't reach the AI step.
+# Catches titles like "Software Engineer, Data Platform" via "data platform".
 title_allow_keywords:
-  - "engineer"        # covers Engineer / Engineering Manager / Software Engineering
-  - "engineering"
-  - "developer"
-  - "development"
-  - "programmer"
-  - "architect"
-  - "sre"
-  - "site reliability"
-  - "devops"
-  - "full stack"
-  - "fullstack"
-  - "full-stack"
-  - "backend"
-  - "back-end"
-  - "back end"
-  - "platform"
-  - "tech lead"
-  - "technical lead"
+  - "data engineer"
+  - "data engineering"
+  - "data platform"
+  - "data infrastructure"
+  - "data pipeline"
+  - "data systems"
+  - "data reliability"
+  - "data ops"
+  - "dataops"
+  - "data warehouse"
+  - "data warehousing"
+  - "data architect"
+  - "data integration"
+  - "lakehouse"
+  - "big data"
+  - "analytics engineer"
+  - "etl"
+  - "streaming"
 
 # Even if the title matched the allowlist above, drop it if it also
-# matches one of these — engineering-adjacent titles that aren't a fit.
+# matches one of these.
 exclusion_keywords:
-  - "accountant"
-  - "accounting"
-  - "nurse"
-  - "nursing"
-  - "lawyer"
-  - "attorney"
-  - "paralegal"
-  - "chemist"
-  - "chemistry"
-  - "electrician"
-  - "plumber"
-  - "welder"
+  # --- Not IC track ---
+  - "manager"
+  - "management"
+  - "director"
+  - "head of"
+  - "vice president"
+  - "vp,"
+  - "vp of"
+  # --- Not full-time ---
+  - "contract"
+  - "contractor"
+  - "freelance"
+  - "temporary"
+  - "temp "
+  - "part-time"
+  - "part time"
+  - "intern"
+  - "internship"
+  - "co-op"
+  - "coop"
+  - "fixed term"
+  - "fixed-term"
+  # --- Below target level ---
+  - "junior"
+  - "new grad"
+  - "entry level"
+  - "entry-level"
+  - "graduate"
+  # --- Data-adjacent but not engineering ---
+  - "data analyst"
+  - "data scientist"
+  - "data entry"
+  - "data steward"
+  - "data governance analyst"
+  - "business analyst"
+  # --- Other non-fit roles ---
+  - "sales engineer"
   - "sales representative"
   - "account executive"
-  - "sales engineer"
-  - "sales development"
-  - "business development representative"
-  - "recruiter"
-  - "talent acquisition"
-  - "talent brand"
-  - "warehouse"
-  - "forklift"
-  - "driver"
-  - "cdl"
-  - "teacher"
-  - "professor"
-  - "dentist"
-  - "physician"
-  - "pharmacist"
-  - "mechanical engineer"
-  - "electrical engineer"
-  - "civil engineer"
-  - "chemical engineer"
-  - "industrial engineer"
-  - "manufacturing engineer"
-  - "hardware engineer"
-  - "process engineer"
-  - "field engineer"
+  - "solutions engineer"
   - "customer success"
   - "account manager"
+  - "recruiter"
+  - "talent acquisition"
   - "marketing"
-  - "copywriting"
   - "compliance"
-  - "product marketing"
+  - "hardware engineer"
+  - "electrical engineer"
+  - "mechanical engineer"
+  - "civil engineer"
+  - "structural engineer"
+  - "chemical engineer"
+  - "process engineer"
+  - "field engineer"
 
-# EDIT ME FIRST: locations to keep, as regex patterns (case-insensitive)
-# matched against the free-text location string each ATS/aggregator
-# returns. Ships below as Canada/Alberta-only (the original author's
-# search) — replace with your own country/region/cities, or every job
-# will get rejected regardless of how good a fit it is. Deliberately does
-# NOT allow a bare "Remote" with no country qualifier — some postings say
-# "Remote Poland"/"Remote Spain"/"Remote Australia" etc, so an allowlist
-# needs an explicit country/region signal instead.
+# Locations to keep, as regex patterns (case-insensitive) matched against
+# the free-text location string each ATS/aggregator returns. Canada is the
+# priority; US is accepted at the country level (e.g. "Remote - US",
+# "United States"). US city-only postings like "Austin, TX" are NOT matched
+# on purpose — those are usually on-site and would mean relocating. Still
+# no bare "Remote" (could be "Remote Poland" etc.).
 location_allow_patterns:
+  # --- Canada ---
   - '\bcanada\b'
+  - '\bcanadian\b'
   - '\balberta\b'
-  - ',\s*ab\b'       # "Calgary, AB" / "Edmonton, AB"
+  - ',\s*ab\b'
   - '\bedmonton\b'
   - '\bcalgary\b'
   - '\bontario\b'
+  - ',\s*on\b'
+  - '\btoronto\b'
+  - '\bottawa\b'
+  - '\bwaterloo\b'
+  - '\bbritish columbia\b'
+  - ',\s*bc\b'
   - '\bvancouver\b'
+  - '\bqu[eé]bec\b'
+  - ',\s*qc\b'
+  - '\bmontr[eé]al\b'
+  - '\bwinnipeg\b'
+  - '\bmanitoba\b'
+  - '\bsaskatchewan\b'
+  - '\bnova scotia\b'
+  - '\bhalifax\b'
+  # --- US / North America (country-level only) ---
+  - '\bunited states\b'
+  - '\busa\b'
+  - '\bu\.s\.a?\.?'
+  - '\bus\b'
+  - '\bnorth america\b'
+  - '\bnoram\b'
+  - '\bamericas\b'
 
-# EDIT ME FIRST (along with stack_core below): JD stack dealbreakers — if
-# the description clearly requires one of these languages/frameworks and
-# does NOT also mention anything from stack_core, treat it as a mismatch.
-# Ships assuming a Python/JS candidate who wants to exclude
-# Java/C#/.NET/etc — if your own stack includes one of these "dealbreaker"
-# languages, move it down into stack_core instead, or this will reject
-# roles in your own stack. Only runs when a description is
-# available. Word-boundary matched to avoid e.g. "java" matching
-# "javascript". Deliberately NOT including bare "go" — too ambiguous
-# ("go-to-market", "go live", etc.); "golang" below covers it, and most Go
-# postings also say "Golang" or "Go (Golang)" somewhere in the JD.
+# JD stack dealbreakers — if the description clearly requires one of these
+# and does NOT also mention anything from stack_core, treat it as a
+# mismatch. Java/Scala/Go were removed or are overridden here: they show up
+# constantly in data engineering JDs alongside Python/Spark, and Go is on
+# your resume.
 stack_dealbreakers:
-  - '\bjava\b'
   - '\bc#\b'
   - '\.net\b'
-  - '\bgolang\b'
+  - '\bjava\b'
   - '\bruby\b'
   - '\brails\b'
   - '\bphp\b'
   - '\bkotlin\b'
   - '\bswift\b'
-  - '\bscala\b'
   - '\bc\+\+\b'
 
-# Your own core stack — if the JD mentions any of these, a stack dealbreaker
-# match above is ignored (the role likely uses both, or the dealbreaker
-# keyword is a false positive).
+# Your core stack — if the JD mentions any of these, a dealbreaker match
+# above is ignored (the role likely uses both).
 stack_core:
   - '\bpython\b'
-  - '\bfastapi\b'
-  - '\bdjango\b'
-  - '\bflask\b'
-  - '\bjavascript\b'
-  - '\btypescript\b'
-  - '\breact\b'
-  - '\bnode(?:\.?js)?\b'
+  - '\bpyspark\b'
+  - '\bspark\b'
+  - '\bsql\b'
+  - '\bdbt\b'
+  - '\bsnowflake\b'
+  - '\bdatabricks\b'
+  - '\bairflow\b'
+  - '\bdagster\b'
+  - '\bkafka\b'
+  - '\biceberg\b'
+  - '\bterraform\b'
 
 # Below this many characters, a JD is treated as a short aggregator teaser
 # snippet rather than a full posting (see app/filters.py's looks_truncated).

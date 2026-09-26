@@ -8,6 +8,19 @@ const COLUMNS: [SortKey, string][] = [
   ["posted_at", "Date"],
 ];
 
+// posted_at is usually an ISO-8601 string, but some ATS sources hand back a
+// raw epoch timestamp (seconds or millis) instead — normalize both to
+// YYYY-MM-DD rather than showing the raw number.
+function formatDate(postedAt: string | null): string {
+  if (!postedAt) return "";
+  if (/^\d+$/.test(postedAt)) {
+    const n = Number(postedAt);
+    const ms = n < 1e12 ? n * 1000 : n;
+    return new Date(ms).toISOString().slice(0, 10);
+  }
+  return postedAt.slice(0, 10);
+}
+
 type JobsTableProps = {
   rows: Job[];
   sortKey: SortKey;
@@ -49,7 +62,7 @@ export default function JobsTable({rows, sortKey, sortDir, onToggleSort, onSelec
                 ))}
               </select>
             </td>
-            <td className="loc-cell">{j.posted_at ? j.posted_at.slice(0, 10) : ""}</td>
+            <td className="loc-cell">{formatDate(j.posted_at)}</td>
           </tr>
         ))}
       </tbody>

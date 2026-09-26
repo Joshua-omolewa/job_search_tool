@@ -31,12 +31,20 @@ the others were. Verify it the same way Coveo/Treewalk's slugs got
 verified: `python -m app.main --company <slug>` against a real
 SmartRecruiters company before trusting it in a real run.
 """
+from datetime import datetime, timezone
+
 import httpx
 
 from app import filters
 
 USER_AGENT = "job-search-pipeline/0.1 (personal use)"
 TIMEOUT = 20.0
+
+
+def _epoch_millis_to_iso(ms: int | None) -> str | None:
+    if ms is None:
+        return None
+    return datetime.fromtimestamp(ms / 1000, tz=timezone.utc).isoformat()
 
 
 def fetch_greenhouse(company_display_name: str, slug: str) -> list[dict]:
@@ -123,7 +131,7 @@ def fetch_lever(company_display_name: str, slug: str) -> list[dict]:
             "title": j.get("text", ""),
             "location": loc,
             "url": j.get("hostedUrl", ""),
-            "posted_at": j.get("createdAt"),  # epoch millis
+            "posted_at": _epoch_millis_to_iso(j.get("createdAt")),
             "description": j.get("descriptionPlain") or j.get("description", ""),
         })
     return jobs

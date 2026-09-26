@@ -13,6 +13,7 @@ export default function Page() {
 
   const [aiStatusFilter, setAiStatusFilter] = useState("all");
   const [myStatusFilter, setMyStatusFilter] = useState("all");
+  const [locationFilter, setLocationFilter] = useState("");
   const [search, setSearch] = useState("");
 
   const [sortKey, setSortKey] = useState<SortKey>("match_score");
@@ -56,6 +57,7 @@ export default function Page() {
       if (myStatusFilter !== "all") {
         if (myStatusFilter === "none" ? j.my_status : j.my_status !== myStatusFilter) return false;
       }
+      if (locationFilter && !j.location.toLowerCase().includes(locationFilter.toLowerCase())) return false;
       if (search) {
         const hay = `${j.company} ${j.title}`.toLowerCase();
         if (!hay.includes(search.toLowerCase())) return false;
@@ -78,7 +80,7 @@ export default function Page() {
       return 0;
     });
     return r;
-  }, [jobs, aiStatusFilter, myStatusFilter, search, sortKey, sortDir]);
+  }, [jobs, aiStatusFilter, myStatusFilter, locationFilter, search, sortKey, sortDir]);
 
   // Derived from `jobs` by url (rather than a frozen snapshot object) so
   // the open panel reflects the latest score/description/status after a
@@ -128,6 +130,8 @@ export default function Page() {
         onAiStatusFilterChange={setAiStatusFilter}
         myStatusFilter={myStatusFilter}
         onMyStatusFilterChange={setMyStatusFilter}
+        locationFilter={locationFilter}
+        onLocationFilterChange={setLocationFilter}
         search={search}
         onSearchChange={setSearch}
         count={rows.length}

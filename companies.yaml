@@ -22,7 +22,7 @@ companies:
     slug: narvar
   - name: Coveo
     ats: greenhouse
-    slug: coveoen   # corrected 2026-08-10: "coveodeven" was a dev/test board with 1 fake job; "coveoen" is production (55 real postings confirmed)
+    slug: coveoen # corrected 2026-08-10: "coveodeven" was a dev/test board with 1 fake job; "coveoen" is production (55 real postings confirmed)
   - name: Procurify
     ats: ashby
     slug: procurify
@@ -31,7 +31,7 @@ companies:
     slug: vanta
   - name: Treewalk
     ats: workable
-    slug: treewalk   # confirmed via apply.workable.com/api/v1/widget/accounts/treewalk — currently 0 open jobs
+    slug: treewalk # confirmed via apply.workable.com/api/v1/widget/accounts/treewalk — currently 0 open jobs
   - name: Seequent
     ats: workable
     slug: seequent
@@ -87,7 +87,7 @@ companies:
     ats: lever
     slug: wattpad
   - name: Ritual
-    ats: lever
+    ats: greenhouse
     slug: ritual
   - name: League
     ats: greenhouse
@@ -101,9 +101,6 @@ companies:
   - name: Borrowell
     ats: workable
     slug: borrowell
-  - name: Achievers
-    ats: lever
-    slug: achievers
   - name: BenchSci
     ats: lever
     slug: benchsci
@@ -137,9 +134,6 @@ companies:
   - name: Tilt
     ats: ashby
     slug: tilt
-  - name: Hootsuite
-    ats: greenhouse
-    slug: hootsuite
   - name: Later
     ats: greenhouse
     slug: later
@@ -150,7 +144,7 @@ companies:
     ats: greenhouse
     slug: visiersolutionsinc
   - name: Trulioo
-    ats: greenhouse
+    ats: ashby
     slug: trulioo
   - name: Blackbird Interactive
     ats: lever
@@ -158,9 +152,6 @@ companies:
   - name: Unbounce
     ats: greenhouse
     slug: unbounce
-  - name: Procurify
-    ats: ashby
-    slug: procurify
   - name: Klue
     ats: ashby
     slug: klue
@@ -194,12 +185,6 @@ companies:
   - name: Quadbridge
     ats: greenhouse
     slug: quadbridge
-  - name: AlayaCare
-    ats: greenhouse
-    slug: alayacare
-  - name: Coveo
-    ats: greenhouse
-    slug: coveodeven
   - name: Hopper
     ats: ashby
     slug: hopper
@@ -230,9 +215,6 @@ companies:
   - name: Attabotics
     ats: lever
     slug: attabotics
-  - name: AltaML
-    ats: lever
-    slug: altaml
   - name: D2L
     ats: greenhouse
     slug: d2l
@@ -277,7 +259,7 @@ companies:
     slug: touchbistro
   - name: Float
     ats: workable
-    slug: floatjobs
+    slug: floatjobs # NOTE 2026-09-26: this board is Float.com (resource mgmt), NOT Float Financial; Float Financial added below as ashby/float
   - name: Waabi
     ats: lever
     slug: waabi
@@ -538,9 +520,6 @@ companies:
   - name: "Pinterest"
     ats: greenhouse
     slug: pinterest
-  - name: "PolicyMe"
-    ats: lever
-    slug: policyme
   - name: "Promise Robotics"
     ats: lever
     slug: promiserobotics
@@ -549,7 +528,7 @@ companies:
     slug: ravenwakegames
   - name: "Relay"
     ats: ashby
-    slug: relay
+    slug: relay # NOTE 2026-09-26: Relay Financial (Toronto) is ashby/relayfi, added below; check this one is the company you meant
   - name: "Relay"
     ats: lever
     slug: relay
@@ -568,9 +547,6 @@ companies:
   - name: "Samsara"
     ats: greenhouse
     slug: samsara
-  - name: "Shakepay"
-    ats: greenhouse
-    slug: shakepay
   - name: "ShyftLabs"
     ats: lever
     slug: shyftlabs
@@ -628,3 +604,139 @@ companies:
   - name: Agiloft
     ats: lever
     slug: agiloft
+
+  # --- Added 2026-09-26: data engineering hiring scan (Canada + US) ---
+  # Each slug below was checked against the ATS's public API on 2026-09-26.
+  # Greenhouse
+  - name: Dropbox
+    ats: greenhouse
+    slug: dropbox # Data Engineer + Sr Mgr Data Eng, Remote US & Remote Canada
+  - name: OpenTable
+    ats: greenhouse
+    slug: opentable # Data Engineer II / data platform roles, Toronto
+  - name: Gusto
+    ats: greenhouse
+    slug: gusto # Senior Data Engineer, Denver/SF/NY (Toronto remote on past posts)
+  - name: Instacart
+    ats: greenhouse
+    slug: instacart # Sr Data Engineer II Finance, Remote Canada (Aug 2026)
+  - name: TripleLift
+    ats: greenhouse
+    slug: triplelift # Senior Data Engineer, Toronto (Sep 2026)
+  - name: Movable Ink
+    ats: greenhouse
+    slug: movableink # 6 data eng / data platform roles, Toronto + US
+  - name: Keebo
+    ats: greenhouse
+    slug: keebo # Senior Data Engineer, Remote Canada/US
+  - name: UJET
+    ats: greenhouse
+    slug: ujet # Data Engineer, Remote US
+  - name: Broadsign
+    ats: greenhouse
+    slug: broadsign # Director of Data Services, Montreal
+  - name: Capital Technology Group
+    ats: greenhouse
+    slug: capitaltg # Principal + Senior Data Engineer, Remote US
+  - name: Afresh
+    ats: greenhouse
+    slug: afresh # Staff Data Engineer roles, Remote US / SF
+  - name: AppDirect
+    ats: greenhouse
+    slug: appdirect # Data Engineer + Senior Data Engineer, Montreal
+  - name: The New York Times
+    ats: greenhouse
+    slug: thenewyorktimes # Data Engineer, Analytics Data Products, NYC
+  - name: Xealth
+    ats: greenhouse
+    slug: xealth # Software Engineer, Data Platform, Seattle
+  - name: K Health
+    ats: greenhouse
+    slug: khealthcareers # Senior Data Engineer, NYC
+  - name: Unite Us
+    ats: greenhouse
+    slug: uniteus # Senior Data Engineer, US (Sep 2026)
+  - name: Robots and Pencils
+    ats: greenhouse
+    slug: robotsandpencils # Staff Data Engineer, Remote Canada (Sep 2026)
+  - name: Overstory
+    ats: greenhouse
+    slug: overstory # Staff Data Engineer, US/Canada remote (Sep 2026)
+  - name: Cybrid
+    ats: greenhouse
+    slug: cybrid # Senior Data Engineer, Ottawa/Toronto; board valid, 0 open on 2026-09-26
+  # Ashby
+  - name: Relay Financial
+    ats: ashby
+    slug: relayfi # Senior Data Engineer, Toronto (correct slug; see note on 'relay' above)
+  - name: Ground News
+    ats: ashby
+    slug: groundnews # Senior Data Engineer, Remote Canada
+  - name: Dandy
+    ats: ashby
+    slug: dandy # Senior Data Engineer - Data Infra, Remote Canada (Sep 2026)
+  - name: Render
+    ats: ashby
+    slug: render # Senior/Staff Data Engineer, SF or Remote US/Canada (Sep 2026)
+  - name: Jellyfish
+    ats: ashby
+    slug: jellyfish # Senior + Staff Data Engineer, Remote US
+  - name: Imprint
+    ats: ashby
+    slug: imprint # Staff Data Engineer, SF
+  - name: Ramp
+    ats: ashby
+    slug: ramp # Eng roles open to Remote Canada + Remote US
+  - name: Kraken
+    ats: ashby
+    slug: kraken.com # Data Engineering roles incl. Canada
+  - name: Jane App
+    ats: ashby
+    slug: jane # Senior/Staff Data Engineer, Remote Canada (Sep 2026)
+  - name: Float Financial
+    ats: ashby
+    slug: float # Senior Data Engineer, Toronto (Jul 2026)
+  - name: Dave
+    ats: ashby
+    slug: dave # Data Engineering team, Remote US
+  - name: Kin Insurance
+    ats: ashby
+    slug: kin # Senior Data Engineer, Remote US (Sep 2026)
+  - name: Rula
+    ats: ashby
+    slug: rula # Staff Data Engineer, Remote US
+  - name: SentiLink
+    ats: ashby
+    slug: sentilink # Data roles, Remote US
+  # Lever
+  - name: Match Group
+    ats: lever
+    slug: matchgroup # Senior Data Engineer, Vancouver (Sep 2026)
+  - name: HHAeXchange
+    ats: lever
+    slug: hhaexchange # Data Engineer, US
+  - name: AHEAD
+    ats: lever
+    slug: thinkahead # Data Engineer, Data Platform, US
+  - name: Egen
+    ats: lever
+    slug: egen # Lead/Senior Data Engineer, US
+  - name: Electric Mind
+    ats: lever
+    slug: electricmind # Databricks / data roles, Toronto
+  - name: Wpromote
+    ats: lever
+    slug: wpromote # Senior Data Engineer roles, Remote US
+  # Workable
+  - name: Aviso Wealth
+    ats: workable
+    slug: aviso # Senior Data Engineer, Toronto/Vancouver
+  - name: Irth Solutions
+    ats: workable
+    slug: irth-solutions # Data Engineer, Canada + US
+  - name: Unit8
+    ats: workable
+    slug: unit8 # Data & AI roles, Montreal + US
+  - name: Valsoft
+    ats: workable
+    slug: valsoft-corp # Data Engineer roles, Montreal
