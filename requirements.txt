@@ -3,3 +3,10 @@ pyyaml>=6.0
 anthropic>=0.40
 python-dotenv>=1.0
 pytest>=8.0
+
+# Optional: only needed if you use the "indeed" aggregator, or want
+# aggregator_clients.fetch_via_browser's Adzuna SPA-page fallback to
+# actually do something (both degrade to a [WARN] + empty result without
+# it, not a crash). After installing, also run:
+#   playwright install chromium
+# playwright>=1.40

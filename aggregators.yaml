@@ -3,53 +3,166 @@
 # keyword + location, so they catch companies you haven't identified yet —
 # at the cost of more noise, which is exactly what filters.py exists for.
 #
-# type: one of "adzuna" | "remotive"
+# type: one of "adzuna" | "remotive" | "remoteok" | "jobicy" | "weworkremotely"
+#   | "linkedin" | "indeed"
 # params: passed straight through to that aggregator's search API, EXCEPT
 #   max_pages (adzuna only) — a pipeline-level control consumed by
 #   fetch_adzuna() before building the request, not sent to Adzuna itself.
 #
-# EDIT ME: every Adzuna entry's `where` below is Alberta/Canada (the
-# original author's search) and `what` targets their keywords/stack.
-# Replace both with your own location and role keywords — and make sure
-# they match filters.yaml's location_allow_patterns/stack_core, or a real
-# result will still get filtered out downstream.
+# EDIT ME: tuned for the current target (Data Engineer roles, Canada-first
+# + US-acceptable — same as filters.yaml). Adzuna's `where` below is
+# Canada; Remotive/RemoteOK/Jobicy/WeWorkRemotely are remote-only by
+# construction so they have no location param to set. Replace `where` and
+# the `what_phrase`/`tag` keyword params with your own if you're not
+# targeting Data Engineer roles — and make sure they still match
+# filters.yaml's location_allow_patterns/stack_core, or a real result will
+# still get filtered out downstream.
+#
+# Adzuna note: `where` is a GEOGRAPHIC field (city/region/country) — it
+# doesn't recognize "remote" as a place, so `where: "remote"` silently
+# returns 0 results every time (confirmed live 2026-09-27). Search "remote"
+# via `what`/`what_phrase` instead; fetch_adzuna() normalizes the returned
+# location field so filters.yaml's location_allow_patterns still match a
+# posting that's remote but whose structured location doesn't say so.
+# `what_phrase` (exact multi-word phrase match) is what actually works for
+# a specific title like "data platform engineer" — plain `what` ANDs every
+# word instead, and combining multiple phrases with " OR " in one `what`
+# broke entirely in testing (0 results), which is why the four Data
+# Engineer variants below are four separate entries rather than one.
 
 aggregators:
-  - name: Adzuna (Canada, software engineer)
+  - name: Adzuna (Canada, Data Engineer)
     type: adzuna
     params:
-      what: "software engineer"
-      where: "Alberta"
+      what_phrase: "data engineer"
+      where: "Canada"
       results_per_page: 50
       max_pages: 5   # up to 250 results; stops early if a page comes back short
     notes: >
       Requires free app_id/app_key from https://developer.adzuna.com (instant
       signup, no approval wait per their docs — exact rate limit wasn't
       confirmed in research, check your account dashboard after signup).
-      Set ADZUNA_APP_ID / ADZUNA_APP_KEY as environment variables.
+      Set ADZUNA_APP_ID / ADZUNA_APP_KEY as environment variables. ~1,962
+      total matches confirmed live 2026-09-27 — by far the biggest of the
+      four Data Engineer variants here.
 
-  - name: Adzuna (Canada, remote backend/fullstack)
+  - name: Adzuna (Canada, Data Platform Engineer)
     type: adzuna
     params:
-      what: "backend engineer OR full stack"
+      what_phrase: "data platform engineer"
       where: "Canada"
       results_per_page: 50
-      max_pages: 5
+      max_pages: 3
+    notes: >
+      ~55 total matches confirmed live 2026-09-27.
 
-  - name: Adzuna (Canada, remote senior software engineer)
+  - name: Adzuna (Canada, Senior Data Engineer)
     type: adzuna
     params:
-      what: "software engineer"
+      what_phrase: "senior data engineer"
+      where: "Canada"
+      results_per_page: 50
+      max_pages: 3
+    notes: >
+      ~183 total matches confirmed live 2026-09-27. Overlaps with the
+      plain "Data Engineer" search above (Adzuna's phrase match isn't
+      exclusive), which is fine — dedup.py catches the repeats by URL.
+
+  - name: Adzuna (Canada, Staff Data Engineer)
+    type: adzuna
+    params:
+      what_phrase: "staff data engineer"
       where: "Canada"
       results_per_page: 50
       max_pages: 1
+    notes: >
+      ~14 total matches confirmed live 2026-09-27 — a single page comfortably
+      covers all of them.
 
   - name: Remotive (software-dev category)
     type: remotive
     params:
       category: "software-dev"
     notes: >
-      No auth needed. Remote-only listings (won't catch Alberta on-site
-      roles). Remotive asks for max 4 requests/day and max 2/minute — keep
-      this to one call per pipeline run. Listings are delayed 24h from
-      posting per their terms.
+      No auth needed. Remote-only listings. Remotive asks for max 4
+      requests/day and max 2/minute — keep this to one call per pipeline
+      run. Listings are delayed 24h from posting per their terms.
+
+  - name: RemoteOK (latest postings)
+    type: remoteok
+    params: {}
+    notes: >
+      No auth needed. Always returns the latest ~100 postings across all
+      categories (tag/location query params don't actually filter
+      server-side, confirmed live 2026-09-27) — filters.yaml's title/stack
+      rules do the real filtering, same idea as a company with a huge
+      board. Every listing is remote by construction.
+
+  - name: Jobicy (Data Engineer)
+    type: jobicy
+    params:
+      count: 50
+      tag: "data engineer"
+    notes: >
+      No auth needed. `tag` does real server-side matching but it's loose
+      (word-level, not an exact phrase) — "data engineer" alone already
+      surfaces Senior/Staff/Data-Platform-Engineer-titled postings, so this
+      one entry covers all four Data Engineer variants above; separate
+      "data platform engineer"/"senior data engineer"/"staff data
+      engineer" tags were tested live and added mostly noise (unrelated
+      "Staff Software Engineer", "Sales Engineer", etc.), not more signal
+      — filters.yaml's title matching is the real precision layer here,
+      same as RemoteOK/WeWorkRemotely.
+
+  - name: WeWorkRemotely (programming)
+    type: weworkremotely
+    params:
+      category: "remote-programming-jobs"
+    notes: >
+      No auth needed. RSS, not JSON. Only returns the latest ~25 postings
+      per fetch (no pagination), and there's no data-engineering-specific
+      category feed (confirmed live 2026-09-27 — an old "remote-data-jobs"
+      slug 301-redirects to nothing parseable) — filters.yaml's title/stack
+      rules do the real filtering, same as RemoteOK. Every listing is
+      remote by construction.
+
+  - name: LinkedIn (Canada, Data Engineer)
+    type: linkedin
+    params:
+      keywords: "data engineer"
+      location: "Canada"
+      time_range: "r604800"   # r86400 = 24h, r604800 = 7d, r2592000 = 30d
+      max_pages: 2            # 10 results/page
+    notes: >
+      No auth needed — LinkedIn's own public "Guest API"
+      (jobs-guest/jobs/api/seeMoreJobPostings/search), the same
+      unauthenticated endpoint linkedin.com/jobs' own search page calls for
+      signed-out visitors. Confirmed live 2026-09-27 with real Canada
+      results (Data Engineer - Snowflake @ Propel, Lead Data Engineer @
+      Nasdaq, Senior Data Engineer @ HelloFresh, ...) — LinkedIn's own
+      relevance ranking surfaces Senior/Staff/Platform variants under this
+      one broad keyword, same as Jobicy above, so this covers the same
+      ground as the four separate Adzuna entries without needing four
+      LinkedIn entries. Undocumented/unofficial, like Workday's CXS or
+      Gem's GraphQL API in ats_clients.py — could change or start
+      rate-limiting without notice; keep max_pages modest.
+
+  - name: Indeed (Canada, Data Engineer)
+    type: indeed
+    params:
+      query: "data engineer"
+      location: "Canada"
+      sort: "date"
+    notes: >
+      Requires the optional `playwright` dependency (see requirements.txt)
+      — degrades to a [WARN] + empty result without it, not a crash.
+      Indeed blocks plain HTTP entirely (confirmed live 2026-09-27: a bare
+      request gets 403, and even a real headless browser navigating
+      DIRECTLY to a job's detail URL gets redirected to an explicit
+      "bot-detection-anonymous" wall) — only a browser clicking through
+      FROM a search-results page, the way an actual visitor would, works.
+      One entry only (not four, like Adzuna): each fetch launches its own
+      browser and every full-description fetch is a real in-page click, so
+      this is by far the slowest/heaviest aggregator here — Indeed's own
+      search relevance covers the Senior/Staff/Platform variants under one
+      broad query, same reasoning as LinkedIn/Jobicy above.

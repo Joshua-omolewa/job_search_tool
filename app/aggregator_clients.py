@@ -9,8 +9,12 @@ Same sandbox caveat as ats_clients.py: outbound calls to these domains were
 not testable live from this cloud dev environment (network allowlist), only
 via WebFetch during research. Run for real on a machine with normal internet.
 """
+import html
 import os
 import re
+import time
+import urllib.parse
+import xml.etree.ElementTree as ET
 
 import httpx
 
@@ -30,6 +34,31 @@ FULL_JD_TIMEOUT = 10.0  # shorter: this is a best-effort extra request per job, 
 DISCOVERED_COMPANIES: list[dict] = []
 
 
+def _format_salary_range(min_val, max_val, currency=None, period=None, note=None) -> str | None:
+    """Shared "X–Y CUR/period" formatter for every aggregator here that
+    gives raw min/max numbers (Adzuna, RemoteOK, Jobicy). None if there's
+    no usable number at all — including 0, which RemoteOK uses as "no
+    salary given" rather than omitting the field (confirmed live
+    2026-09-27: 83 of 99 real postings had salary_min == salary_max == 0;
+    treating that as a real $0 salary was a real bug caught testing this
+    against live data, not a hypothetical)."""
+    def _num(v):
+        try:
+            n = float(v)
+        except (TypeError, ValueError):
+            return None
+        return f"{n:,.0f}" if n else None
+
+    lo, hi = _num(min_val), _num(max_val)
+    if not lo and not hi:
+        return None
+    amount = f"{lo}–{hi}" if lo and hi and lo != hi else (lo or hi)
+    text = " ".join(p for p in (amount, currency) if p)
+    if period:
+        text = f"{text}/{period}"
+    return f"{text} ({note})" if note else text
+
+
 def _format_adzuna_salary(salary_min, salary_max, is_predicted) -> str | None:
     # Adzuna gives raw numbers, no currency field — implied by the country
     # in the endpoint path, which fetch_adzuna hardcodes to /ca/ below, so
@@ -37,18 +66,7 @@ def _format_adzuna_salary(salary_min, salary_max, is_predicted) -> str | None:
     # salary_min/salary_max/salary_is_predicted values). `is_predicted`
     # means Adzuna's own ML estimate, not an employer-disclosed figure —
     # flagged with "(est.)" so it doesn't read as a real posted salary.
-    def _num(v):
-        try:
-            return f"{float(v):,.0f}"
-        except (TypeError, ValueError):
-            return None
-
-    lo, hi = _num(salary_min), _num(salary_max)
-    if not lo and not hi:
-        return None
-    amount = f"{lo}–{hi}" if lo and hi and lo != hi else (lo or hi)
-    text = f"{amount} CAD/year"
-    return f"{text} (est.)" if is_predicted else text
+    return _format_salary_range(salary_min, salary_max, "CAD", "year", "est." if is_predicted else None)
 
 _GREENHOUSE_URL_RE = re.compile(r"(?:job-boards|boards)\.greenhouse\.io/([^/]+)/jobs/(\d+)")
 _LEVER_URL_RE = re.compile(r"jobs\.lever\.co/([^/]+)/([0-9a-f-]{36})")
@@ -298,6 +316,20 @@ def fetch_adzuna(params: dict) -> list[dict]:
             redirect_url = j.get("redirect_url", "")
             snippet = j.get("description", "")  # Adzuna gives a short snippet, not the full JD
 
+            # Adzuna's structured `location` is a geographic field (e.g.
+            # "Toronto, Ontario") — it doesn't reflect remote status even
+            # when the posting clearly is remote (that only shows up in the
+            # title/snippet text). Confirmed live 2026-09-27: `where:
+            # "remote"` in aggregators.yaml itself returns 0 results,
+            # because Adzuna's geocoder doesn't recognize "remote" as a
+            # place — so "remote" has to be searched via `what`/
+            # `what_phrase` instead, and this backfills the location string
+            # so filters.location_is_allowed() (which only ever looks at
+            # this field) doesn't drop a genuinely remote posting just
+            # because Adzuna's own location field omits it.
+            if "remote" not in loc.lower() and "remote" in (title + " " + snippet).lower():
+                loc = f"Remote - {loc}" if loc else "Remote"
+
             description = snippet
             company_name = (j.get("company") or {}).get("display_name", "Unknown")
             # Only worth the extra request for jobs that already look like
@@ -356,9 +388,359 @@ def fetch_remotive(params: dict) -> list[dict]:
     return jobs
 
 
+def fetch_remoteok(params: dict) -> list[dict]:
+    # https://remoteok.com/api — no auth. Confirmed live 2026-09-27: `tag`/
+    # `location` query params do NOT filter server-side (a request with
+    # `tag=data` returns the exact same 100 postings as no params at all),
+    # so `params` is accepted for interface consistency with the other
+    # fetchers but unused — this always returns the latest ~100 postings
+    # across every category, and filters.yaml's title/stack rules do the
+    # real filtering, same idea as a company with a huge board.
+    url = "https://remoteok.com/api"
+    resp = httpx.get(url, headers={"User-Agent": USER_AGENT}, timeout=TIMEOUT)
+    resp.raise_for_status()
+    data = resp.json()
+
+    jobs = []
+    for j in data:
+        if "position" not in j:
+            continue  # first element is RemoteOK's API-terms legal notice, not a job
+        # `location` is very often "" (confirmed live: blank on most
+        # postings) even though every RemoteOK listing is remote by
+        # construction — always prefix "Remote" so
+        # filters.location_is_allowed() has something to match rather than
+        # dropping a real remote posting over an empty location string.
+        raw_location = (j.get("location") or "").strip()
+        jobs.append({
+            "company": j.get("company", "Unknown"),
+            "title": j.get("position", ""),
+            "location": f"Remote - {raw_location}" if raw_location else "Remote",
+            "url": j.get("url") or j.get("apply_url", ""),
+            "posted_at": j.get("date"),
+            "description": j.get("description", ""),
+            # No currency field on RemoteOK's own API — assumed USD (the
+            # site's own convention; confirmed live several real
+            # salary_min/salary_max pairs, e.g. 70000-80000, no currency
+            # marker anywhere in the response to contradict this).
+            "salary": _format_salary_range(j.get("salary_min"), j.get("salary_max"), "USD", "year"),
+        })
+    return jobs
+
+
+def fetch_jobicy(params: dict) -> list[dict]:
+    # https://jobicy.com/api/v2/remote-jobs — no auth. `geo` (e.g. "europe",
+    # "usa") DOES filter server-side (confirmed live), and `tag` accepts a
+    # multi-word phrase (e.g. "data engineer", URL-encoded) that matches
+    # job titles well — confirmed live: tag="data engineer" surfaced
+    # "Senior Data Engineer", "AWS Data Engineer (Senior)", etc., not just
+    # generic "dev" noise. Every Jobicy listing is remote by construction.
+    url = "https://jobicy.com/api/v2/remote-jobs"
+    resp = httpx.get(url, params=params, headers={"User-Agent": USER_AGENT}, timeout=TIMEOUT)
+    resp.raise_for_status()
+    data = resp.json()
+
+    jobs = []
+    for j in data.get("jobs", []):
+        # `jobGeo` is a hiring-eligibility region (e.g. "USA", "Europe"),
+        # not itself "remote" text, so it's folded into the location string
+        # the same way as fetch_remoteok/fetch_adzuna.
+        geo = (j.get("jobGeo") or "").strip()
+        jobs.append({
+            "company": j.get("companyName", "Unknown"),
+            "title": j.get("jobTitle", ""),
+            "location": f"Remote - {geo}" if geo else "Remote",
+            "url": j.get("url", ""),
+            "posted_at": j.get("pubDate"),
+            "description": j.get("jobDescription", ""),  # full HTML per Jobicy's docs
+            # Real structured currency+period fields, unlike RemoteOK —
+            # confirmed live real values (e.g. 160000-195000 USD yearly).
+            # Jobicy's "yearly"/"hourly" -> this module's "year"/"hour".
+            "salary": _format_salary_range(
+                j.get("salaryMin"), j.get("salaryMax"), j.get("salaryCurrency"),
+                (j.get("salaryPeriod") or "").removesuffix("ly") or None,
+            ),
+        })
+    return jobs
+
+
+def fetch_weworkremotely(params: dict) -> list[dict]:
+    # https://weworkremotely.com/categories/<category>.rss — no auth, RSS
+    # (not JSON). Confirmed live 2026-09-27: the general
+    # "remote-programming-jobs" category (the default) mixes titles across
+    # sub-disciplines; category-specific feeds exist for some sub-areas
+    # (e.g. "remote-full-stack-programming-jobs", 40 items;
+    # "remote-back-end-programming-jobs", 6 items) but there's no
+    # data-engineering-specific one, and an old "remote-data-jobs" slug
+    # 301-redirects to nothing parseable — so this leans on filters.yaml's
+    # title/stack rules for precision, same as fetch_remoteok. Every
+    # listing is remote by construction. No salary field anywhere in the
+    # feed. Title is "Company: Job Title" — split on the first ": ".
+    category = params.get("category", "remote-programming-jobs")
+    url = f"https://weworkremotely.com/categories/{category}.rss"
+    resp = httpx.get(url, headers={"User-Agent": USER_AGENT}, timeout=TIMEOUT)
+    resp.raise_for_status()
+    root = ET.fromstring(resp.text)
+
+    jobs = []
+    for item in root.findall(".//item"):
+        raw_title = (item.findtext("title") or "").strip()
+        company, sep, title = raw_title.partition(": ")
+        if not sep:
+            company, title = "Unknown", raw_title
+        # `region` (e.g. "USA Only", "Anywhere in the World") is a hiring-
+        # eligibility hint, not itself "remote" text, so it's folded into
+        # the location string the same way as the other fetchers here.
+        region = (item.findtext("region") or "").strip()
+        jobs.append({
+            "company": company,
+            "title": title,
+            "location": f"Remote - {region}" if region else "Remote",
+            "url": item.findtext("link") or item.findtext("guid") or "",
+            "posted_at": item.findtext("pubDate"),
+            "description": item.findtext("description") or "",
+            "salary": None,
+        })
+    return jobs
+
+
+_LINKEDIN_CARD_RE = re.compile(r"<li[^>]*>(.*?)</li>", re.DOTALL)
+_LINKEDIN_TITLE_RE = re.compile(r"<h3[^>]*>(.*?)</h3>", re.DOTALL)
+_LINKEDIN_COMPANY_RE = re.compile(r"<h4[^>]*>(.*?)</h4>", re.DOTALL)
+_LINKEDIN_LOCATION_RE = re.compile(r'class="job-search-card__location"[^>]*>(.*?)</span>', re.DOTALL)
+_LINKEDIN_URL_RE = re.compile(r'href="(https://[a-z]+\.linkedin\.com/jobs/view/[^"]+)"')
+_LINKEDIN_DATE_RE = re.compile(r'datetime="([^"]+)"')
+# Stops at the "description__job-criteria-list" that immediately follows
+# the description on every real job page sampled — a landmark chosen over
+# trying to match a specific closing-tag sequence (</div></div></section>,
+# what an earlier version of this regex did) because the description's own
+# internal nesting depth isn't fixed: a naive closing-tag match found
+# nearby matched a real position but the WRONG one, silently truncating
+# the captured text to only the first paragraph, and only real HTML
+# (checked live 2026-09-27) caught it — a hand-built fixture using a
+# plausible-looking but not-quite-real nesting depth passed clean.
+_LINKEDIN_DESC_RE = re.compile(
+    r'class="description__text description__text--rich">(.*?)<ul class="description__job-criteria-list"',
+    re.DOTALL,
+)
+
+
+def _clean_html_text(raw: str) -> str:
+    return html.unescape(re.sub(r"<[^>]+>", " ", raw or "")).strip()
+
+
+def _parse_linkedin_cards(page_html: str) -> list[dict]:
+    """Extract job cards from a LinkedIn Guest API search-results HTML
+    response (see fetch_linkedin). Regex, not an HTML parser, because
+    there's no structured API here to prefer — same tradeoff as
+    _html_page_to_text elsewhere in this module, just targeted at a known
+    card layout instead of an arbitrary page. Confirmed live 2026-09-27
+    against real "data engineer" / Canada results: title/company/location/
+    date/url all extracted correctly for every one of 20 real postings
+    sampled across 2 pages (Snowflake Data Engineer @ Propel, Lead Data
+    Engineer @ Nasdaq, Senior Data Engineer @ HelloFresh, etc.)."""
+    jobs = []
+    for card in _LINKEDIN_CARD_RE.findall(page_html):
+        title_m = _LINKEDIN_TITLE_RE.search(card)
+        title = _clean_html_text(title_m.group(1)) if title_m else ""
+        if not title:
+            continue
+        company_m = _LINKEDIN_COMPANY_RE.search(card)
+        location_m = _LINKEDIN_LOCATION_RE.search(card)
+        url_m = _LINKEDIN_URL_RE.search(card)
+        date_m = _LINKEDIN_DATE_RE.search(card)
+        jobs.append({
+            "title": title,
+            "company": _clean_html_text(company_m.group(1)) if company_m else "Unknown",
+            "location": _clean_html_text(location_m.group(1)) if location_m else "",
+            "url": url_m.group(1).split("?")[0] if url_m else "",
+            "posted_at": date_m.group(1) if date_m else None,
+        })
+    return jobs
+
+
+def _fetch_linkedin_description(job_url: str) -> str:
+    """The search-results HTML has no description at all — only the job's
+    own page does, one extra request per job. Confirmed live 2026-09-27:
+    unlike LinkedIn's main site, a public job/view page is served to a
+    plain unauthenticated GET (no login wall for viewing, only for
+    applying), so this is a normal httpx call, no browser needed. Best-
+    effort: any failure just means no description, not a crashed run."""
+    try:
+        resp = httpx.get(job_url, headers={"User-Agent": USER_AGENT}, timeout=TIMEOUT)
+        resp.raise_for_status()
+        m = _LINKEDIN_DESC_RE.search(resp.text)
+        return _collapse_whitespace(_clean_html_text(m.group(1))) if m else ""
+    except Exception:
+        return ""
+
+
+def fetch_linkedin(params: dict) -> list[dict]:
+    # LinkedIn's public "Guest API" — the same unauthenticated endpoint
+    # linkedin.com/jobs' own search page calls for non-logged-in visitors,
+    # confirmed live 2026-09-27 (no auth, no Playwright needed, real
+    # results for "data engineer" / Canada). This is unofficial/
+    # undocumented — like Workday's CXS or Gem's GraphQL API elsewhere in
+    # this codebase, it could change or start rate-limiting without
+    # notice; a short delay between pages here is deliberate, not just
+    # politeness.
+    keywords = params.get("keywords", "")
+    location = params.get("location", "")
+    time_range = params.get("time_range", "r604800")  # r604800 = last 7 days
+    max_pages = params.get("max_pages", 2)
+
+    jobs = []
+    seen_urls: set[str] = set()
+    for page_num in range(max_pages):
+        if page_num > 0:
+            time.sleep(1.5)
+        query = urllib.parse.urlencode({
+            "keywords": keywords, "location": location, "f_TPR": time_range, "start": page_num * 10,
+        })
+        url = f"https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search?{query}"
+        try:
+            resp = httpx.get(
+                url,
+                headers={"User-Agent": USER_AGENT, "Accept-Language": "en-US,en;q=0.9"},
+                timeout=TIMEOUT,
+            )
+            resp.raise_for_status()
+            cards = _parse_linkedin_cards(resp.text)
+        except Exception:
+            break
+        if not cards:
+            break  # short/empty page -> no more results
+
+        for c in cards:
+            if not c["url"] or c["url"] in seen_urls:
+                continue
+            seen_urls.add(c["url"])
+
+            description = ""
+            # Only worth the extra per-job request for postings that
+            # already look like real candidates — same gating idea used
+            # throughout this module.
+            if filters.title_is_relevant(c["title"]) and filters.location_is_allowed(c["location"]):
+                description = _fetch_linkedin_description(c["url"])
+
+            jobs.append({
+                "company": c["company"],
+                "title": c["title"],
+                "location": c["location"],
+                "url": c["url"],
+                "posted_at": c["posted_at"],
+                "description": description,
+                # No salary anywhere in either the search card or the job
+                # page HTML (confirmed live) — LinkedIn just doesn't
+                # surface it on public/guest views.
+                "salary": None,
+            })
+    return jobs
+
+
+def fetch_indeed(params: dict) -> list[dict]:
+    # Indeed blocks plain HTTP entirely (confirmed live 2026-09-27: a bare
+    # httpx GET against a search page gets a 403, and even a Playwright
+    # browser navigating DIRECTLY to a /viewjob?jk=... detail URL gets
+    # redirected to an explicit "from=bot-detection-anonymous" wall) — a
+    # real headless browser clicking through FROM a search results page,
+    # the way an actual visitor would, is the only path that works.
+    # Optional dependency, same contract as fetch_via_browser above: no
+    # playwright installed -> warn and return [], don't crash the run.
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError:
+        print("[WARN] Indeed requires the optional `playwright` dependency "
+              "(pip install playwright && playwright install chromium) — skipping.")
+        return []
+
+    query = params.get("query", "")
+    location = params.get("location", "")
+    sort = params.get("sort", "date")
+    base = params.get("base_url", "https://ca.indeed.com")  # swap for another country's Indeed site if needed
+
+    jobs = []
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            try:
+                page = browser.new_page(user_agent=USER_AGENT)
+                search_url = f"{base}/jobs?{urllib.parse.urlencode({'q': query, 'l': location, 'sort': sort})}"
+                page.goto(search_url, wait_until="domcontentloaded", timeout=20000)
+                page.wait_for_timeout(3000)
+
+                cards = page.locator(".job_seen_beacon").all()
+                for card in cards:
+                    title_el = card.locator("a.jcs-JobTitle, h2.jobTitle a").first
+                    if title_el.count() == 0:
+                        continue
+                    title = (title_el.text_content() or "").strip()
+                    # The canonical detail URL is built from data-jk, NOT
+                    # the card's href — confirmed live: sponsored ("pagead")
+                    # cards' href is a one-time ad-click-tracking redirect,
+                    # not a stable URL, which would break URL-based dedup
+                    # across runs even though data-jk (present on every
+                    # card, sponsored or not) is stable.
+                    jk = title_el.get_attribute("data-jk")
+                    if not title or not jk:
+                        continue
+                    job_url = f"{base}/viewjob?jk={jk}"
+
+                    company_el = card.locator("[data-testid='company-name']").first
+                    company = (company_el.text_content() or "").strip() if company_el.count() > 0 else "Unknown"
+                    loc_el = card.locator("[data-testid='text-location']").first
+                    location_text = (loc_el.text_content() or "").strip() if loc_el.count() > 0 else location
+                    salary_el = card.locator('[data-testid*="salary-snippet-container"]').first
+                    salary = (salary_el.text_content() or "").strip() if salary_el.count() > 0 else None
+
+                    description = ""
+                    # No description/snippet at all on the search card
+                    # (confirmed live — only badges like salary/employment
+                    # type) — the ONLY way to get it is the in-page click-
+                    # through below, so gate that on title/location first,
+                    # same idea as everywhere else in this module, to keep
+                    # a page of noisy results from turning into 15+ clicks.
+                    if (
+                        filters.title_is_relevant(title)
+                        and filters.location_is_allowed(location_text)
+                        and title_el.is_visible()
+                    ):
+                        try:
+                            title_el.click(timeout=5000)
+                            page.wait_for_timeout(2000)
+                            pane = page.locator(
+                                ".simple-job-description-html, #jobDescriptionText, "
+                                ".jobsearch-JobComponent-description"
+                            ).first
+                            if pane.count() > 0:
+                                description = _collapse_whitespace(pane.inner_text())
+                        except Exception:
+                            pass  # best-effort — keep the empty description, don't fail the run
+
+                    jobs.append({
+                        "company": company,
+                        "title": title,
+                        "location": location_text,
+                        "url": job_url,
+                        "posted_at": None,  # not exposed on the search card; not worth another click just for this
+                        "description": description,
+                        "salary": salary,
+                    })
+            finally:
+                browser.close()
+    except Exception as exc:
+        print(f"[WARN] Indeed scrape failed: {exc}")
+
+    return jobs
+
+
 FETCHERS = {
     "adzuna": fetch_adzuna,
     "remotive": fetch_remotive,
+    "remoteok": fetch_remoteok,
+    "jobicy": fetch_jobicy,
+    "weworkremotely": fetch_weworkremotely,
+    "linkedin": fetch_linkedin,
+    "indeed": fetch_indeed,
 }
 
 

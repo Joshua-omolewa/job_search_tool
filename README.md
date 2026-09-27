@@ -22,7 +22,8 @@ is sent to a third party beyond fetching the postings themselves.
      (Greenhouse, Ashby, Workable, Lever, SmartRecruiters, Workday,
      BambooHR, Rippling, Teamtailor, Gem) — precise, low noise.
    - `aggregators.yaml` — broad keyword+location search across many
-     employers at once (Adzuna, Remotive) — wider reach, more noise.
+     employers at once (Adzuna, Remotive, RemoteOK, Jobicy,
+     WeWorkRemotely, LinkedIn, Indeed) — wider reach, more noise.
 2. **Filter** (`app/filters.py`) — drops anything that isn't an
    engineering-shaped title, isn't in an allowed location, or whose JD
    requires a stack you've excluded.
@@ -196,7 +197,12 @@ Thin wrappers over the commands above — run from the repo root:
   Workable, Lever, SmartRecruiters, Workday, BambooHR, Rippling,
   Teamtailor, Gem).
 - **`aggregators.yaml`** — aggregator search config (keywords, location,
-  pagination limits).
+  pagination limits) across Adzuna, Remotive, RemoteOK, Jobicy,
+  WeWorkRemotely, LinkedIn, and Indeed. Only Adzuna needs auth (a free
+  app_id/app_key). Indeed additionally needs the optional `playwright`
+  dependency (see requirements.txt) — it's the only one that can't be
+  scraped without a real browser; the rest are plain HTTP/API calls. See
+  the file's header comment for each one's query params and quirks.
 - **`filters.yaml`** — title allowlist/exclusion keywords, location
   allowlist patterns, and JD stack-dealbreaker/core-stack keywords. Edit
   this directly as you refine what counts as in-scope for you — no code
@@ -278,6 +284,32 @@ None of them call live external APIs.
 - AI evaluation runs several jobs concurrently (`AI_EVALUATE_WORKERS`,
   default 5) rather than one Claude call at a time — ~4-5x faster on a
   real run, see the AI evaluation section above.
+- RemoteOK, Jobicy, and WeWorkRemotely were each validated against real
+  live responses, including a full end-to-end pipeline run (fetch ->
+  filter -> dedup) across all `aggregators.yaml` entries together. None
+  of the three support real server-side title filtering (RemoteOK/
+  WeWorkRemotely have no keyword param at all; Jobicy's `tag` is a loose
+  word-level match, not an exact phrase) — they always return their
+  latest ~25-100 postings, and `filters.yaml`'s title/stack rules do the
+  real narrowing, same as a company with a huge board. RemoteOK uses
+  `salary_min == salary_max == 0` to mean "no salary given," not an
+  actual $0 — caught live and guarded against, not hypothetical (83 of 99
+  real postings sampled had this).
+- LinkedIn and Indeed were each validated against real live responses,
+  including a full end-to-end pipeline run (fetch -> filter -> dedup)
+  against real Canada/Data-Engineer results — 18 of 20 LinkedIn results
+  and 3 of 16 Indeed results passed filters and were new, in one live
+  test run. LinkedIn calls the same public, unauthenticated "Guest API"
+  its own signed-out job search page uses (undocumented/unofficial, like
+  Workday's CXS or Gem's GraphQL API in `ats_clients.py` — could change or
+  start rate-limiting without notice). Indeed blocks plain HTTP entirely
+  (confirmed live: a bare request gets 403, and even a real browser
+  navigating directly to a job's detail URL gets redirected to an
+  explicit bot-detection wall) — only a headless browser clicking through
+  from a search page, like a real visitor, gets past it, which is why
+  `fetch_indeed` needs the optional `playwright` dependency and is by far
+  the slowest aggregator here (a real browser launch, page render, and an
+  in-page click per job worth fetching the full description for).
 - If a particular company's fetch fails, `main.py` logs a warning and
   continues with the rest rather than crashing the whole run.
 

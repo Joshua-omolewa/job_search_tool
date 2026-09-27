@@ -64,7 +64,16 @@ def test_full_description_falls_back_to_html_scrape():
 
 
 def test_full_description_returns_none_on_failure():
-    with patch("httpx.get", side_effect=Exception("connection refused")):
+    # Also mocks fetch_via_browser — fetch_full_description falls back to it
+    # on httpx failure, and if the optional `playwright` dependency happens
+    # to be installed in whatever environment this runs in (it's a real
+    # requirement for aggregator_clients.fetch_indeed now, not just an
+    # incidental extra), that fallback would otherwise make a REAL network
+    # call here instead of the isolated unit test this is meant to be —
+    # caught live: this test silently depended on playwright being absent
+    # until installing it for fetch_indeed's own tests exposed the gap.
+    with patch("httpx.get", side_effect=Exception("connection refused")), \
+         patch("app.aggregator_clients.fetch_via_browser", return_value=None):
         result = aggregator_clients.fetch_full_description("https://www.adzuna.ca/details/4")
     assert result == {"description": None, "ats": None, "slug": None}
     print("fetch_full_description: network failure -> empty result, no crash — OK")
