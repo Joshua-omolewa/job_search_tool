@@ -79,7 +79,7 @@ def test_adzuna_only_fetches_full_jd_for_promising_thin_snippets():
     only for the subset that's both a real candidate AND thin. This is
     what keeps a 2000-result run from turning into 2000 extra requests."""
     base_result = lambda **kw: {
-        "title": "Software Engineer, Backend",
+        "title": "Software Engineer, Data Platform",
         "location": {"display_name": "Alberta, Canada"},
         "company": {"display_name": "TestCo"},
         "redirect_url": "https://www.adzuna.ca/details/x",
@@ -116,7 +116,7 @@ def test_adzuna_queues_discovered_companies():
     company should land in DISCOVERED_COMPANIES for discover_companies.py
     to pick up after the run — see main.py."""
     result = {
-        "title": "Software Engineer, Automated Marketing",
+        "title": "Software Engineer, Data Platform",
         "location": {"display_name": "Alberta, Canada"},
         "company": {"display_name": "Warner Music Group"},
         "redirect_url": "https://www.adzuna.ca/details/5702928490",

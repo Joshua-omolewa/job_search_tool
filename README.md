@@ -69,11 +69,15 @@ is a lighter starting point already shaped for that role (stack and
 competency categories pre-set).
 
 Either way, it's worth seeing what a properly filled-in profile looks
-like before you write your own: for a fully worked (fictional) example
-showing the level of specificity/quantification each evidence bullet
-should actually have — not something to copy verbatim, but useful as a
-target for "good" — see
-[`profile.senior_software_engineer_template.yaml`](profile.senior_software_engineer_template.yaml).
+like before you write your own: for fully worked examples showing the
+level of specificity/quantification each evidence bullet should actually
+have — not something to copy verbatim, but useful as a target for
+"good" — see
+[`profile.senior_software_engineer_template.yaml`](profile.senior_software_engineer_template.yaml)
+(fictional, general full-stack background) or
+[`profile.data_engineer_template.yaml`](profile.data_engineer_template.yaml)
+(data-engineering-shaped — lakehouse/streaming/platform work — pairs with
+`filters.yaml`'s shipped Data Engineer defaults below).
 
 `ANTHROPIC_API_KEY` is only needed for the AI evaluation step. Adzuna
 (`ADZUNA_APP_ID`/`ADZUNA_APP_KEY`) is only needed if you keep an Adzuna
@@ -84,22 +88,38 @@ auth but only covers remote roles.
 ### Customize for your own search
 
 This repo ships pre-configured for the original author's search (Alberta/
-Canada, Python/JS stack). **Before your first run, edit these three
-files** or you'll get zero candidates, or candidates that don't match your
-actual stack:
+Canada, targeting Data Engineer / Senior / Staff Data Engineer / Data
+Platform Engineer titles, Python + data-stack dealbreakers). **Before
+your first run, edit the following** (all in `filters.yaml` except the
+last) or you'll get zero candidates, or candidates that don't match your
+actual role/stack:
 
-1. **`filters.yaml` → `location_allow_patterns`** — regex patterns for
+1. **`filters.yaml` → `priority_title_keywords` / `title_allow_keywords`**
+   — ships deliberately narrow to Data Engineer-shaped titles (no bare
+   "engineer"/"developer"/"platform") so generic software/frontend/
+   hardware roles never reach the AI step. If you're targeting a
+   different title — Software Engineer, for instance — either broaden
+   these lists yourself, or just swap in
+   [`filters_software_engineer_template.yaml`](filters_software_engineer_template.yaml),
+   a ready-made alternative tuned for general software engineering roles
+   (`cp filters_software_engineer_template.yaml filters.yaml`) — pairs
+   with `profile.senior_software_engineer_template_2.yaml`/
+   `profile.senior_software_engineer_template.yaml` above.
+2. **`filters.yaml` → `location_allow_patterns`** — regex patterns for
    locations to keep. Ships as Canada/Alberta-only; replace with your own
    country/region/cities, or delete entries to broaden it. This is the
    #1 reason a first run returns nothing — if nothing you fetch ever
    matches these patterns, `location_is_allowed()` rejects every job.
-2. **`filters.yaml` → `stack_dealbreakers` / `stack_core`** — a JD is
+3. **`filters.yaml` → `stack_dealbreakers` / `stack_core`** — a JD is
    rejected if it mentions a `stack_dealbreakers` language and none of
-   `stack_core`. Ships assuming you want Python/JS and don't want
-   Java/C#/.NET/etc. If your own stack includes one of the "dealbreaker"
-   languages, move it into `stack_core` (or the filter will reject roles
-   in your own stack).
-3. **`companies.yaml`** — the company registry. Ships with the original
+   `stack_core`. Ships assuming a Python/data stack (PySpark, SQL, dbt,
+   Snowflake, Databricks, Airflow, ...) and rejects Java/C#/.NET/Ruby/
+   Rails/PHP/Kotlin/Swift roles. If your own stack includes one of the
+   "dealbreaker" languages, move it into `stack_core` (or the filter will
+   reject roles in your own stack) — `filters_software_engineer_template.yaml`
+   above ships a different, broader stack_core if you're not targeting
+   data engineering specifically.
+4. **`companies.yaml`** — the company registry. Ships with the original
    author's real target list; add/remove companies to match who you're
    actually applying to (see the file's header comment for the format).
    `aggregators.yaml`'s `where` params are also location-specific —
@@ -180,13 +200,18 @@ Thin wrappers over the commands above — run from the repo root:
 - **`filters.yaml`** — title allowlist/exclusion keywords, location
   allowlist patterns, and JD stack-dealbreaker/core-stack keywords. Edit
   this directly as you refine what counts as in-scope for you — no code
-  changes needed (matching logic lives in `app/filters.py`).
+  changes needed (matching logic lives in `app/filters.py`). Ships tuned
+  for Data Engineer roles; see
+  [`filters_software_engineer_template.yaml`](filters_software_engineer_template.yaml)
+  for a ready-made alternative tuned for general software engineering
+  roles instead.
 - **`profile.yaml`** — your experience profile fed to the AI evaluation
   step (see `profile.general_template.yaml` for the general blank
   template, `profile.senior_software_engineer_template_2.yaml` for a
-  software-engineer-shaped blank starting point, and
+  software-engineer-shaped blank starting point,
   `profile.senior_software_engineer_template.yaml` for a fully worked
-  example).
+  software-engineer example, and `profile.data_engineer_template.yaml`
+  for a fully worked data-engineer example).
 
 ## Project layout
 
@@ -206,10 +231,12 @@ app/
 web/                       Next.js review board (see web/README.md)
 companies.yaml             company -> ATS registry
 aggregators.yaml           aggregator search config
-filters.yaml               title/location/stack filter rules
+filters.yaml               title/location/stack filter rules (ships tuned for Data Engineer roles)
+filters_software_engineer_template.yaml             alternative filters.yaml tuned for software engineering roles
 profile.general_template.yaml                       general-purpose blank template for profile.yaml (your real profile, gitignored)
 profile.senior_software_engineer_template_2.yaml     blank template pre-shaped for a software engineer
-profile.senior_software_engineer_template.yaml       fully worked (fictional) example of a filled-in profile
+profile.senior_software_engineer_template.yaml       fully worked (fictional) software-engineer example
+profile.data_engineer_template.yaml                 fully worked data-engineer example
 ```
 
 ## Tests

@@ -1,0 +1,277 @@
+# Candidate profile for Joshua Omolewa, built from the master resume
+# (Joshua_Omolewa_Data_Engineer_Resume_master_v_FINAL.docx).
+#
+# Target roles: Data Engineer, Senior Data Engineer, Staff Data Engineer,
+# Data Platform Engineer.
+
+identity:
+  name: "Your Name"
+  headline: "Senior Data Engineer — Data Platforms, Lakehouse & Streaming (AWS, Snowflake, Databricks)"
+  years_experience: 4
+  location: "Calgary, Alberta, Canada"
+  location_constraints: >
+    Based in Calagary, AB. Canadian citizen. Has worked fully remote for
+    Toronto-based companies since 2022 and is set up for remote work.
+    Primarily targeting roles in Canada (remote-Canada, or hybrid/on-site
+    in Edmonton). Also open to US roles that can hire in Canada, but
+    Canadian roles are the priority.
+  education:
+    - "M.Eng., Software Engineering, University of Alberta (2020)"
+
+core_stack:
+  languages_frameworks:
+    [
+      "Python",
+      "SQL",
+      "PySpark",
+      "Spark SQL",
+      "dbt",
+      "Bash",
+      "Go (event schema contracts)",
+      "FastAPI",
+    ]
+  ai_genai:
+    [
+      "Claude Code",
+      "Cursor Agent",
+      "MCP (Model Context Protocol)",
+      "Agentic tool-calling patterns",
+      "Anthropic/OpenAI APIs",
+      "RAG (chunking, embeddings, vector retrieval)",
+    ]
+  data_infra:
+    - "Snowflake"
+    - "Databricks (Unity Catalog, DABs)"
+    - "Apache Iceberg"
+    - "Delta Lake"
+    - "Apache Hudi"
+    - "Apache Kafka / AWS MSK"
+    - "Debezium CDC"
+    - "Spark Structured Streaming"
+    - "AWS Kinesis / Firehose"
+    - "AWS (S3, Glue, Athena, EMR, ECS, Lambda, RDS, DynamoDB, IAM)"
+    - "Dagster"
+    - "Apache Airflow"
+    - "Airbyte"
+    - "Fivetran"
+    - "Terraform / OpenTofu"
+    - "PostgreSQL"
+    - "Redshift"
+    - "Docker"
+    - "GitLab CI / GitHub Actions"
+    - "Datadog"
+    - "Great Expectations"
+    - "Looker (LookML)"
+
+competencies:
+  streaming_and_realtime:
+    summary: >
+      Designs and runs real-time event pipelines on Kafka/MSK, Kinesis, and
+      Debezium CDC, landing data in open table formats with defined schema
+      contracts so downstream consumers get fresh, trustworthy data.
+    evidence:
+      - "Led migration of the SIEM Event Dashboard from legacy ELK to
+        Looker, cutting event-to-dashboard latency from ~4 hours to under
+        5 minutes by defining the Go event schema contract and building a
+        Terraform-provisioned AWS MSK + Kinesis Firehose pipeline landing
+        Iceberg tables modeled in dbt (1Password)."
+      - "Built a real-time stock streaming pipeline with Kafka on AWS MSK,
+        Debezium CDC, and Spark Structured Streaming on EMR, landing Hudi
+        tables in S3 with Great Expectations checks, Slack alerting, and a
+        FastAPI service serving 1-minute intraday data to BI dashboards
+        (personal project)."
+
+  lakehouse_and_platform_architecture:
+    summary: >
+      Builds shared data-platform foundations on Iceberg-based lakehouses
+      across AWS, Databricks, and Snowflake — choosing storage and catalog
+      patterns that avoid duplication and keep multiple engines on one
+      source of truth.
+    evidence:
+      - "Contributing to a multi-quarter migration from AWS Athena and Glue
+        to Snowflake and Databricks; built the shared-storage pattern where
+        S3 Iceberg tables are read by Databricks via Unity Catalog (source
+        layer) and by Snowflake via Horizon Catalog (silver/gold), avoiding
+        a full data copy and ~15 TB of duplicated storage Your company name."
+      - "Built the evaluation POC that drove selection of Dagster over
+        Airflow — benchmarking both on cost, backfill performance, and
+        developer ergonomics — and contributed to the technical design
+        document enabling migration off Prefect ([Your company name])."
+      - "Migrated 6 legacy AWS Glue jobs to Dagster-native ECS assets,
+        cutting failure triage time ~60% by replacing cross-console
+        debugging with asset-level lineage and unified run logs in one
+        control plane ([Your company name])."
+
+  ingestion_and_pipeline_engineering:
+    summary: >
+      End-to-end ELT/ETL and reverse-ETL pipelines — from SaaS APIs and
+      operational databases into the warehouse, and back out to business
+      tools — built incrementally so they scale with data volume.
+    evidence:
+      - "Delivered a Python reverse-ETL pipeline on AWS ECS syncing 16M+
+        customer records from dbt-managed Iceberg models into Zendesk
+        daily, using S3 state checkpointing to process only changed records
+        and a Datadog dashboard tracking throughput and runtime
+        Your company name."
+      - "Architected 4 Airbyte ELT connectors in Terraform ingesting AI usage
+        data for 1,000+ employees into AWS Glue Iceberg tables via Dagster,
+        giving executive leadership first visibility into ~$250K in annual
+        AI spend Your company name."
+      - "Cut ETL runtime 45% by transforming JSON, CSV, and Parquet data from
+        PostgreSQL RDS and S3 with PySpark on AWS EMR, Glue, and Databricks,
+        orchestrated through Airflow DAGs with retries and alerting (Beam
+        Data — watch collector startup client)."
+      - "Automated CSV ingestion from S3 into PostgreSQL RDS with Python and
+        AWS Lambda, processing 50K+ records daily and removing 8 hours/week
+        of manual loading (Your company name)."
+
+  data_modeling_and_analytics_engineering:
+    summary: >
+      Dimensional and medallion data modeling in dbt on Snowflake and
+      Iceberg, turning scattered sources into governed, tested models that
+      stakeholders can actually self-serve from.
+    evidence:
+      - "Designed a Snowflake data warehouse using Kimball dimensional
+        modeling and dbt, cutting campaign reporting turnaround from 3 days
+        to under 2 hours for 12 marketing and leadership stakeholders (Beam
+        Data — educational institution client)."
+      - "Consolidated Google Ads, Mailchimp, and legacy warehouse sources
+        into Snowflake via Airbyte, eliminating 10 hours/week of manual
+        exports and standardizing 25+ campaign metrics into one governed
+        model (Your company name)."
+      - "Built 10 dbt models on a medallion architecture surfacing developer
+        productivity KPIs for 60+ engineers, replacing 20 hours/month of
+        manual GitLab reporting Your company name."
+
+  data_quality_observability_and_reliability:
+    summary: >
+      Treats data quality, alerting, and on-call load as engineering
+      problems: tests in the pipeline, monitors that fire before users
+      notice, and fixes that remove recurring toil.
+    evidence:
+      - "Reduced on-call interventions 50% by building a credential-expiry
+        monitoring system on AWS Lambda, DynamoDB, and Datadog that alerts
+        owners 14 days ahead with actionable remediation steps
+        ([Your company name])."
+      - "Modeled PostgreSQL schemas in dbt with Great Expectations tests,
+        reducing data quality incidents by 35% for downstream data
+        scientists and analysts ([Your company name])."
+      - "Instrumented CloudWatch metric filters and alarms across Airflow
+        ETL DAGs to catch late S3 arrivals and failed PySpark steps,
+        surfacing silent data drops in under 5 minutes instead of at
+        next-day reporting ()."
+
+  devops_and_infrastructure_as_code:
+    summary: >
+      Provisions data infrastructure with Terraform and keeps delivery
+      pipelines healthy, so the data team ships without manual toil.
+    evidence:
+      - "Cut GitLab CI/CD pipeline failures ~40% by diagnosing cache
+        invalidation issues and adding automatic retries for transient
+        runner errors, removing ~3 hours/week of manual re-runs for the
+        data team ([Your company name])."
+      - "Provisions streaming and ingestion infrastructure (AWS MSK, Kinesis
+        Firehose, Airbyte connectors) as code in Terraform Your company name."
+
+  ai_assisted_engineering:
+    summary: >
+      Uses agentic AI development workflows daily — Claude Code and Cursor
+      with repo-level context, custom commands, and MCP servers — while
+      keeping human review and PII safeguards in the loop.
+    evidence:
+      - "Accelerated delivery ~25% using AI-assisted tools (Claude Code,
+        Cursor, Cody) for prototyping, debugging, and test generation, while
+        manually reviewing generated SQL and redacting sensitive PII before
+        submission Your company name."
+      - "Built the data pipelines giving leadership first visibility into
+        ~$250K/year of company AI spend across 1,000+ employees
+        Your company name."
+
+  technical_leadership:
+    summary: >
+      Senior IC who owns data products end to end — from business
+      requirements through design, build, and on-call — drives tooling
+      decisions with evidence, and mentors junior engineers.
+    evidence:
+      - "Built the benchmarking POC and contributed to the design document
+        that drove the team's orchestration decision (Dagster over
+        Airflow) and migration off Prefect Your company name."
+      - "Mentored data engineering interns on architectural design and
+        trade-offs across scalability, reliability, cost, and
+        maintainability Your company name."
+      - "Defined the Go event schema contract between producers and the
+        data platform for the SIEM dashboard migration Your company name."
+
+  cost_and_ops_impact:
+    summary: >
+      Weighs storage, compute, and people-hours as design constraints —
+      removing duplication and manual work rather than adding headcount.
+    evidence:
+      - "Avoided ~15 TB of duplicated storage by designing a shared Iceberg
+        storage layer read by both Databricks and Snowflake Your company name."
+      - "Saved 20 hours/week of manual uploads with a Python ETL pipeline on
+        EC2 moving company data from the Google Drive API into S3 (Beam
+        Data)."
+      - "Eliminated 10 hours/week of manual exports and 20 hours/month of
+        manual reporting through automated ingestion and dbt models (Beam
+        Data,Your company name."
+
+experience_timeline:
+  - company: Your company name
+    dates: "2024-present"
+    title: "Data Engineer & Data Platform Engineer"
+    domain: "Password management / cybersecurity SaaS (remote, Toronto)"
+    stack:
+      [
+        "Python",
+        "SQL",
+        "dbt",
+        "Dagster",
+        "Apache Iceberg",
+        "AWS MSK",
+        "Kinesis Firehose",
+        "AWS Glue",
+        "Athena",
+        "ECS",
+        "Lambda",
+        "Snowflake",
+        "Databricks",
+        "Airbyte",
+        "Terraform",
+        "Datadog",
+        "GitLab CI",
+        "Looker",
+        "Go",
+      ]
+  - company: "Your company name"
+    dates: "2022-2024"
+    title: "Data Engineer"
+    domain: "Data consultancy — clients in higher education and e-commerce (remote, Toronto)"
+    stack:
+      [
+        "Python",
+        "SQL",
+        "Snowflake",
+        "dbt",
+        "PySpark",
+        "AWS EMR",
+        "AWS Glue",
+        "Databricks",
+        "Airflow",
+        "Airbyte",
+        "PostgreSQL RDS",
+        "Lambda",
+        "Great Expectations",
+        "CloudWatch",
+      ]
+
+constraints:
+  - "Targeting Data Engineer, Senior Data Engineer, Staff Data Engineer,
+    and Data Platform Engineer roles; strongest fit is platform-leaning
+    work (lakehouse, streaming, orchestration, IaC) over pure BI/analytics."
+  - "Individual-contributor track only; not interested in people
+    management roles."
+  - "Full-time roles only; not open to contract or freelance positions."
+  - "Location priority: Canada first; US roles acceptable if they can hire
+    in Canada."
+  - "Compensation is open; do not filter roles out on salary."
