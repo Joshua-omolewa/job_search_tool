@@ -14,6 +14,7 @@ export default function Page() {
   const [aiStatusFilter, setAiStatusFilter] = useState("all");
   const [myStatusFilter, setMyStatusFilter] = useState("all");
   const [locationFilter, setLocationFilter] = useState("");
+  const [sourceFilter, setSourceFilter] = useState("all");
   const [search, setSearch] = useState("");
 
   const [sortKey, setSortKey] = useState<SortKey>("match_score");
@@ -58,6 +59,7 @@ export default function Page() {
         if (myStatusFilter === "none" ? j.my_status : j.my_status !== myStatusFilter) return false;
       }
       if (locationFilter && !j.location.toLowerCase().includes(locationFilter.toLowerCase())) return false;
+      if (sourceFilter !== "all" && j.source !== sourceFilter) return false;
       if (search) {
         const hay = `${j.company} ${j.title}`.toLowerCase();
         if (!hay.includes(search.toLowerCase())) return false;
@@ -80,7 +82,16 @@ export default function Page() {
       return 0;
     });
     return r;
-  }, [jobs, aiStatusFilter, myStatusFilter, locationFilter, search, sortKey, sortDir]);
+  }, [jobs, aiStatusFilter, myStatusFilter, locationFilter, sourceFilter, search, sortKey, sortDir]);
+
+  // Sources are whatever companies.yaml/aggregators.yaml actually produced
+  // (10+ ATS types, 7+ aggregator types and growing) — derived from the
+  // real data instead of a hardcoded list, so a newly-added source shows
+  // up in the filter automatically without a code change here.
+  const sourceOptions = useMemo(
+    () => Array.from(new Set(jobs.map((j) => j.source).filter((s): s is string => !!s))).sort(),
+    [jobs]
+  );
 
   // Derived from `jobs` by url (rather than a frozen snapshot object) so
   // the open panel reflects the latest score/description/status after a
@@ -132,6 +143,9 @@ export default function Page() {
         onMyStatusFilterChange={setMyStatusFilter}
         locationFilter={locationFilter}
         onLocationFilterChange={setLocationFilter}
+        sourceFilter={sourceFilter}
+        onSourceFilterChange={setSourceFilter}
+        sourceOptions={sourceOptions}
         search={search}
         onSearchChange={setSearch}
         count={rows.length}

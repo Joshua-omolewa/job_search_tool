@@ -5,7 +5,7 @@ import StatusBadge from "@/app/components/StatusBadge";
 const COLUMNS: [SortKey, string][] = [
   ["company", "Company"], ["title", "Title"], ["location", "Location"],
   ["salary", "Salary"], ["match_score", "Score"], ["status", "AI status"],
-  ["my_status", "My status"], ["posted_at", "Posted"],
+  ["my_status", "My status"], ["posted_at", "Posted"], ["source", "Source"],
 ];
 
 // posted_at is usually an ISO-8601 string, but some ATS sources hand back a
@@ -80,6 +80,7 @@ export default function JobsTable({rows, sortKey, sortDir, onToggleSort, onSelec
               </select>
             </td>
             <td className="loc-cell">{formatRelativeDate(j.posted_at)}</td>
+            <td className="loc-cell">{j.source ?? "—"}</td>
           </tr>
         ))}
       </tbody>

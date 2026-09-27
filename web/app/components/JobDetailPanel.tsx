@@ -28,6 +28,7 @@ export default function JobDetailPanel({
             {job.company} · {job.location} · <StatusBadge status={job.status} />
             {job.match_score != null && ` · score ${job.match_score}`}
             {job.salary && ` · ${job.salary}`}
+            {job.source && ` · ${job.source}`}
           </div>
         </div>
         <div id="panel-body">

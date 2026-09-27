@@ -7,6 +7,9 @@ type ToolbarProps = {
   onMyStatusFilterChange: (value: string) => void;
   locationFilter: string;
   onLocationFilterChange: (value: string) => void;
+  sourceFilter: string;
+  onSourceFilterChange: (value: string) => void;
+  sourceOptions: string[];
   search: string;
   onSearchChange: (value: string) => void;
   count: number;
@@ -18,6 +21,7 @@ const Toolbar = ({
   aiStatusFilter, onAiStatusFilterChange,
   myStatusFilter, onMyStatusFilterChange,
   locationFilter, onLocationFilterChange,
+  sourceFilter, onSourceFilterChange, sourceOptions,
   search, onSearchChange,
   count, total, onRefresh,
 }: ToolbarProps) => {
@@ -51,6 +55,15 @@ const Toolbar = ({
           onChange={(e) => onLocationFilterChange(e.target.value)}
           placeholder="city, state, remote..."
         />
+      </label>
+      <label>
+        Source
+        <select value={sourceFilter} onChange={(e) => onSourceFilterChange(e.target.value)}>
+          <option value="all">All</option>
+          {sourceOptions.map((v) => (
+            <option key={v} value={v}>{v}</option>
+          ))}
+        </select>
       </label>
       <label>
         Search

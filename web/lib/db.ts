@@ -19,6 +19,7 @@ export type JobRow = {
   description: string;
   passed_filters: number;
   salary: string | null;
+  source: string | null;
   match_score: number | null;
   recommendation: string | null;
   genuine_gaps: string | null;
@@ -48,7 +49,8 @@ function getDb(): Database.Database {
       description TEXT,
       passed_filters INTEGER,
       fetched_at TEXT DEFAULT CURRENT_TIMESTAMP,
-      salary TEXT
+      salary TEXT,
+      source TEXT
     );
     CREATE TABLE IF NOT EXISTS ai_evaluations (
       url TEXT PRIMARY KEY,
@@ -68,11 +70,19 @@ function getDb(): Database.Database {
     );
   `);
   // CREATE TABLE IF NOT EXISTS above only handles a brand-new DB — a file
-  // already created by an older dedup.py (or this file) predates `salary`
-  // and needs it added explicitly, mirroring dedup.py's own _migrate().
+  // already created by an older dedup.py (or this file) predates `salary`/
+  // `source` and needs them added explicitly, mirroring dedup.py's own
+  // _migrate(). (dedup.py's real schema has had `source` since 2026-08-12,
+  // well before this file did — this migration is purely for a DB that
+  // was itself first created by an older version of this file, not the
+  // Python pipeline.)
   const existing = db.prepare("PRAGMA table_info(job_details)").all() as { name: string }[];
-  if (!existing.some((col) => col.name === "salary")) {
+  const existingNames = new Set(existing.map((col) => col.name));
+  if (!existingNames.has("salary")) {
     db.exec("ALTER TABLE job_details ADD COLUMN salary TEXT");
+  }
+  if (!existingNames.has("source")) {
+    db.exec("ALTER TABLE job_details ADD COLUMN source TEXT");
   }
   return db;
 }
@@ -82,7 +92,7 @@ export function getJobs(): JobRow[] {
     .prepare(
       `
       SELECT jd.url, jd.company, jd.title, jd.location, jd.posted_at,
-             jd.description, jd.passed_filters, jd.salary,
+             jd.description, jd.passed_filters, jd.salary, jd.source,
              ae.match_score, ae.recommendation, ae.genuine_gaps,
              ae.transferable_strengths, ae.risk_factors,
              us.my_status, us.notes
