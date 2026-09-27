@@ -1,6 +1,22 @@
 # Company registry for the job discovery pipeline.
-# ats: one of "greenhouse" | "ashby" | "workable" | "lever" | "smartrecruiters"
+# ats: one of "greenhouse" | "ashby" | "workable" | "lever" | "smartrecruiters" | "workday" | "bamboohr" | "rippling" | "teamtailor" | "gem"
 # slug: the identifier used in that ATS's public API URL
+#   - workday is the odd one out: slug is "{tenant}.wd{N}/{site}", read off
+#     the company's careers URL — e.g.
+#     https://nvidia.wd5.myworkdayjobs.com/en-US/NVIDIAExternalCareerSite/...
+#     gives slug "nvidia.wd5/NVIDIAExternalCareerSite" (drop the locale
+#     segment, e.g. "en-US", if present). See ats_clients.fetch_workday's
+#     CONFIDENCE NOTE for how this was verified.
+#   - bamboohr's slug is just the {slug} in https://{slug}.bamboohr.com/careers/
+#     — e.g. https://explorance.bamboohr.com/careers/ gives slug "explorance".
+#   - rippling's slug is the board slug from https://ats.rippling.com/{slug}/jobs
+#     — e.g. https://ats.rippling.com/urban-sdk/jobs gives slug "urban-sdk".
+#   - teamtailor's slug is just the {slug} in https://{slug}.teamtailor.com/jobs
+#     — e.g. https://chip.teamtailor.com/jobs gives slug "chip".
+#   - gem's slug is the vanity path from https://jobs.gem.com/{slug}
+#     — e.g. https://jobs.gem.com/11x-ai gives slug "11x-ai". See
+#     ats_clients.fetch_gem's CONFIDENCE NOTE — this one's reverse-engineered
+#     from an undocumented internal API, same caveat as workday.
 #
 # The list below is the original author's real target list (Alberta/Canada
 # tech companies), kept as-is as a working example of the format. Add or
@@ -604,6 +620,15 @@ companies:
   - name: Agiloft
     ats: lever
     slug: agiloft
+  - name: "TRM-labs"
+    ats: ashby
+    slug: trm-labs
+  - name: "Thumbtack"
+    ats: ashby
+    slug: thumbtack
+  - name: "SurveyMonkey"
+    ats: ashby
+    slug: surveymonkey
 
   # --- Added 2026-09-26: data engineering hiring scan (Canada + US) ---
   # Each slug below was checked against the ATS's public API on 2026-09-26.
@@ -740,3 +765,229 @@ companies:
   - name: Valsoft
     ats: workable
     slug: valsoft-corp # Data Engineer roles, Montreal
+
+  # --- Added 2026-09-26: Workday rollout + more big-tech Greenhouse boards ---
+  # Each slug below was hit against the ATS's live public API on 2026-09-26.
+  # Greenhouse
+  - name: Airbnb
+    ats: greenhouse
+    slug: airbnb # 2 Senior Staff Data Engineer roles, United States
+  - name: Stripe
+    ats: greenhouse
+    slug: stripe # data-engineering-adjacent role in Toronto
+  - name: Databricks
+    ats: greenhouse
+    slug: databricks # the data platform itself — strong stack overlap even on titles that don't literally say "data engineer"
+
+  # --- Added 2026-09-26: requested company list (US big tech + high-paying) ---
+  # Verified against each ATS's live public API. A few names below returned
+  # a 200 with real-looking data but turned out to be unrelated companies or
+  # abandoned test accounts sharing the slug — those are called out in
+  # "Checked and NOT added" instead of silently skipped, so nobody re-tries
+  # the same wrong slug later:
+  #   - linkedin: exists on both Greenhouse and Lever, but both are junk/test
+  #     boards ("LI Test Company", job titles like "123123", "Bug Bash Job") —
+  #     not the real LinkedIn.
+  #   - clio: exists on Workable, but it's "Klyomuse", an unrelated Greek
+  #     startup — not Clio the Vancouver legal-practice-management company.
+  #   - uber: exists on Workable as "Über" (0 jobs) — a different, unrelated
+  #     account, not Uber the rideshare company.
+  #   - shopify / remitly / doordash: each has a real-named but long-abandoned
+  #     Workable account with 0 open jobs — not their actual current hiring
+  #     pipeline, so not usable even though the slug "works".
+  # Checked and deliberately NOT added — no public API on any ATS this tool
+  # supports (Greenhouse/Ashby/Workable/Lever/SmartRecruiters/Workday); all
+  # run fully proprietary/custom career sites:
+  #   Meta, Google, Amazon, Netflix, LinkedIn, Microsoft, Apple, Shopify,
+  #   Atlassian, DoorDash (confirmed no public ATS API), Uber (confirmed
+  #   Oracle Recruiting Cloud/HCM via a job posting requiring that skill).
+  #   (Clio WAS in this list — turned out to be on Workday after all, just
+  #   under a slug this pass didn't guess; see the Clio entry above.)
+  - name: Coinbase
+    ats: greenhouse
+    slug: coinbase
+  - name: Cloudflare
+    ats: greenhouse
+    slug: cloudflare
+  - name: Anthropic
+    ats: greenhouse
+    slug: anthropic
+  - name: Scale AI
+    ats: greenhouse
+    slug: scaleai
+  - name: Snowflake
+    ats: ashby
+    slug: snowflake
+  - name: Cerebras
+    ats: ashby
+    slug: cerebras # FPGA/distributed-systems eng roles, Sunnyvale CA
+  - name: Confluent
+    ats: ashby
+    slug: confluent # smaller external board (~20 roles) incl. WarpStream/distributed-systems roles; most Confluent hiring may run elsewhere, but this board is real and live
+  - name: OpenAI
+    ats: ashby
+    slug: openai
+  - name: Palantir
+    ats: lever
+    slug: palantir
+
+  # --- Added 2026-09-26: user-supplied startup list (grouped by ATS) ---
+  # Each slug verified against the live public API on 2026-09-26.
+  # SentiLink, Lithic, Cybrid were already tracked above — not duplicated.
+  # PFF: the ats.rippling.com/pff-careers board a search turned up (with a
+  # real Senior Data Engineer posting) 404s now, both via the API and the
+  # page itself — looks like it's been taken down/moved since; not added.
+  # Ashby
+  - name: Radar
+    ats: ashby
+    slug: radar
+  - name: Tavus
+    ats: ashby
+    slug: tavus
+  - name: Crux
+    ats: ashby
+    slug: crux
+  - name: Treeswift
+    ats: ashby
+    slug: treeswift
+  - name: Owner.com
+    ats: ashby
+    slug: owner
+  - name: Plug
+    ats: ashby
+    slug: plugmotors # legal entity is "Plug Technologies Inc"; board slug differs from the company name
+  - name: Netic
+    ats: ashby
+    slug: netic
+  # Lever
+  - name: MoonPay
+    ats: lever
+    slug: moonpay
+  - name: WHOOP
+    ats: lever
+    slug: whoop # valid board, 0 open roles on 2026-09-26
+  - name: Tala
+    ats: lever
+    slug: tala
+  - name: Pattern
+    ats: lever
+    slug: pattern
+  - name: FieldAI
+    ats: lever
+    slug: field-ai
+  - name: Empassion
+    ats: lever
+    slug: empassion.com # dot is part of the real slug, same as Arc'teryx's "arcteryx.com" above
+  - name: RemoFirst
+    ats: lever
+    slug: remofirst
+  # Greenhouse
+  - name: Human Interest
+    ats: greenhouse
+    slug: humaninterest
+  - name: Equilibrium Energy
+    ats: greenhouse
+    slug: equilibriumenergy
+  - name: Smartly
+    ats: greenhouse
+    slug: smartlyio # board slug is "smartlyio", not "smartly"
+  # Workable
+  - name: LocalStack
+    ats: workable
+    slug: localstack # valid board, 0 open roles on 2026-09-26
+  - name: Ripjar
+    ats: workable
+    slug: ripjar
+  - name: K1X
+    ats: workable
+    slug: k1x
+  - name: Dayshape
+    ats: workable
+    slug: dayshape
+  # Rippling — new ats type this pass; see ats_clients.fetch_rippling and
+  # this file's header comment for the slug format.
+  - name: Unchained
+    ats: rippling
+    slug: unchained
+  - name: Urban SDK
+    ats: rippling
+    slug: urban-sdk
+  - name: GenLogs
+    ats: rippling
+    slug: genlogs-corporation # real Data Engineer role open
+  - name: Chord
+    ats: rippling
+    slug: chord-commerce # valid board, 0 open roles on 2026-09-26
+  # Teamtailor — new ats type this pass; see ats_clients.fetch_teamtailor
+  # and this file's header comment for the slug format.
+  - name: Chip
+    ats: teamtailor
+    slug: chip
+  - name: Yousign
+    ats: teamtailor
+    slug: yousign # feed's own "title" field says "Youtrust" — likely a legacy/internal name, but the subdomain and jobs are Yousign's
+  - name: Crunchbase
+    ats: teamtailor
+    slug: crunchbase.na # NA-region Teamtailor subdomain (crunchbase.na.teamtailor.com) — the slug is everything before ".teamtailor.com", region prefix included
+  - name: Implicity
+    ats: teamtailor
+    slug: implicity
+  # Gem — new ats type this pass; see ats_clients.fetch_gem's CONFIDENCE
+  # NOTE and this file's header comment for the slug format and caveats.
+  - name: 11x.ai
+    ats: gem
+    slug: 11x-ai
+  - name: Supio
+    ats: gem
+    slug: supio
+  - name: Aarden
+    ats: gem
+    slug: aarden-ai # real Sr. Data Platform Engineer role open
+  - name: Apartment List
+    ats: gem
+    slug: apartment-list
+  - name: detections.ai
+    ats: gem
+    slug: detections-ai # real Data Engineer role open
+
+  # Workday — public CXS API, unauthenticated; see ats_clients.fetch_workday's
+  # CONFIDENCE NOTE and this file's header comment for the slug format.
+  # Checked and deliberately NOT added: Dell (migrated off Workday to Oracle
+  # HCM — jobs.dell.com now redirects to enterpriseplatform.dell.com/hcmUI);
+  # ServiceNow (couldn't locate their own tenant — every myworkdayjobs.com
+  # hit for "ServiceNow" was a different company's job titled after the
+  # product, not ServiceNow's own board).
+  - name: Adobe
+    ats: workday
+    slug: adobe.wd5/external_experienced # Senior/Lead Data Engineer, San Francisco/San Jose
+  - name: Salesforce
+    ats: workday
+    slug: salesforce.wd12/External_Career_Site # Data Engineer roles across offices, incl. the Data 360 team
+  - name: Autodesk
+    ats: workday
+    slug: autodesk.wd1/Ext # Principal Data Engineer roles based in Toronto, ON — direct Canada match
+
+  - name: Visa
+    ats: workday
+    slug: visa.wd5/Visa # Data Engineer - Sr. Consultant level, Foster City CA
+  - name: Mastercard
+    ats: workday
+    slug: mastercard.wd1/CorporateCareers # data engineering/science roles, incl. Toronto
+  - name: Remitly
+    ats: workday
+    slug: remitly.wd5/Remitly_Careers # Manager, Data Analytics — Burnaby, BC, Canada
+  - name: Clio
+    ats: workday
+    slug: clio.wd3/ClioCareerSite # user-supplied slug, confirmed live 2026-09-26 (129 open roles) — corrects the "not found" note below, which was for the wrong "clio" (Workable's "Klyomuse")
+  - name: Micron
+    ats: workday
+    slug: micron.wd1/External # semiconductor mfg data/process engineering roles
+  - name: NVIDIA
+    ats: workday
+    slug: nvidia.wd5/NVIDIAExternalCareerSite # ~2000 open roles; full pipeline incl. multi-location resolution verified live
+  - name: HPE
+    ats: workday
+    slug: hpe.wd5/ACJobSite # Data Engineer / Data Architect roles
+  - name: PayPal
+    ats: workday
+    slug: paypal.wd1/jobs # Senior Data Engineer + cloud data infrastructure roles
