@@ -92,9 +92,9 @@ auth but only covers remote roles.
 This repo ships pre-configured for the original author's search (Alberta/
 Canada, targeting Data Engineer / Senior / Staff Data Engineer / Data
 Platform Engineer titles, Python + data-stack dealbreakers). **Before
-your first run, edit the following** (all in `filters.yaml` except the
-last) or you'll get zero candidates, or candidates that don't match your
-actual role/stack:
+your first run, edit the following** (items 1-3 are in `filters.yaml`,
+4-5 are the company/aggregator registries) or you'll get zero candidates,
+or candidates that don't match your actual role/stack:
 
 1. **`filters.yaml` → `priority_title_keywords` / `title_allow_keywords`**
    — ships deliberately narrow to Data Engineer-shaped titles (no bare
@@ -124,8 +124,24 @@ actual role/stack:
 4. **`companies.yaml`** — the company registry. Ships with the original
    author's real target list; add/remove companies to match who you're
    actually applying to (see the file's header comment for the format).
-   `aggregators.yaml`'s `where` params are also location-specific —
-   update those too if you're not targeting Alberta/Canada.
+5. **`aggregators.yaml`** — ships tuned for the same Data Engineer /
+   Canada search as `filters.yaml` above, so every entry needs both its
+   title keyword and its location edited for a different search:
+   - **Title keyword** — each aggregator's own param name for it:
+     Adzuna's `what_phrase`, Jobicy's `tag`, LinkedIn's `keywords`,
+     Indeed's `query`. (Remotive/RemoteOK/WeWorkRemotely have no keyword
+     param at all — they return their latest postings regardless, and
+     `filters.yaml`'s title matching does the real narrowing for those
+     three.)
+   - **Location** — Adzuna's `where` and LinkedIn's/Indeed's `location`
+     are all `"Canada"`; replace with your own country/region. Remotive/
+     RemoteOK/Jobicy/WeWorkRemotely are remote-only by construction and
+     have no location param to set.
+   Whatever you change these to, make sure a real result would still match
+   `filters.yaml`'s `title_allow_keywords`/`location_allow_patterns`, or
+   it'll get filtered out downstream anyway — see the file's own header
+   comment for per-aggregator quirks (e.g. Adzuna's `where: "remote"`
+   silently returning 0 results).
 
 ## Usage
 
