@@ -12,7 +12,7 @@ and (for the optional AI step) the Anthropic API. All state — scraped
 jobs, scores, your own notes — lives in a local SQLite database; nothing
 is sent to a third party beyond fetching the postings themselves.
 
-<img width="2558" height="1115" alt="image" src="https://github.com/user-attachments/assets/175c97e0-58e9-4c63-9171-9b8af89fb464" />
+<img width="2551" height="1220" alt="image" src="https://github.com/user-attachments/assets/638470ad-ce73-4515-b03c-4ff28e89d874" />
 
 
 ## How it works
