@@ -1,10 +1,11 @@
 # A fully worked (but entirely fictional) example profile — for reference,
-# not for copying verbatim. profile.example.yaml is the blank template to
-# actually start from; this file shows what a filled-in one looks like: the
-# level of specificity/quantification each evidence bullet should have, and
-# how to phrase a competency summary so the AI evaluation step in
-# ai_evaluate.py has something concrete to reason about instead of vague
-# claims like "worked on backend stuff."
+# not for copying verbatim. profile.general_template.yaml (any field) or
+# profile.senior_software_engineer_template_2.yaml (software engineer) are
+# the blank templates to actually start from; this file shows what a
+# filled-in one looks like: the level of specificity/quantification each
+# evidence bullet should have, and how to phrase a competency summary so
+# the AI evaluation step in ai_evaluate.py has something concrete to
+# reason about instead of vague claims like "worked on backend stuff."
 #
 # None of the people, companies, or numbers below are real.
 

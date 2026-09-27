@@ -49,18 +49,30 @@ cp .env.example .env
 # fill in .env with the keys you need — see the comments in that file
 ```
 
-Create your experience profile from the template (this file is gitignored
-— it's never committed, since it holds your personal experience):
+Create your experience profile from a template (`profile.yaml` itself is
+gitignored — it's never committed, since it holds your personal
+experience):
 
 ```bash
-cp profile.example.yaml profile.yaml
+cp profile.general_template.yaml profile.yaml
 # then edit profile.yaml with your own background
 ```
 
-`profile.example.yaml` is a blank template — it tells you the shape but
-not the bar. For a fully worked (fictional) example showing the level of
-specificity/quantification each evidence bullet should actually have, see
-[`profile.sample.yaml`](profile.sample.yaml).
+[`profile.general_template.yaml`](profile.general_template.yaml) is the
+general-purpose blank template — adaptable to any field, `<PLACEHOLDER>`
+fields throughout, and it opens with a ready-to-copy prompt for having
+Claude fill it in from your resume instead of doing it by hand. If you're
+specifically a software engineer,
+[`profile.senior_software_engineer_template_2.yaml`](profile.senior_software_engineer_template_2.yaml)
+is a lighter starting point already shaped for that role (stack and
+competency categories pre-set).
+
+Either way, it's worth seeing what a properly filled-in profile looks
+like before you write your own: for a fully worked (fictional) example
+showing the level of specificity/quantification each evidence bullet
+should actually have — not something to copy verbatim, but useful as a
+target for "good" — see
+[`profile.senior_software_engineer_template.yaml`](profile.senior_software_engineer_template.yaml).
 
 `ANTHROPIC_API_KEY` is only needed for the AI evaluation step. Adzuna
 (`ADZUNA_APP_ID`/`ADZUNA_APP_KEY`) is only needed if you keep an Adzuna
@@ -169,8 +181,11 @@ Thin wrappers over the commands above — run from the repo root:
   this directly as you refine what counts as in-scope for you — no code
   changes needed (matching logic lives in `app/filters.py`).
 - **`profile.yaml`** — your experience profile fed to the AI evaluation
-  step (see `profile.example.yaml` for the blank template and
-  `profile.sample.yaml` for a fully worked example).
+  step (see `profile.general_template.yaml` for the general blank
+  template, `profile.senior_software_engineer_template_2.yaml` for a
+  software-engineer-shaped blank starting point, and
+  `profile.senior_software_engineer_template.yaml` for a fully worked
+  example).
 
 ## Project layout
 
@@ -191,8 +206,9 @@ web/                       Next.js review board (see web/README.md)
 companies.yaml             company -> ATS registry
 aggregators.yaml           aggregator search config
 filters.yaml               title/location/stack filter rules
-profile.example.yaml       blank template for profile.yaml (your real profile, gitignored)
-profile.sample.yaml        fully worked (fictional) example of a filled-in profile
+profile.general_template.yaml                       general-purpose blank template for profile.yaml (your real profile, gitignored)
+profile.senior_software_engineer_template_2.yaml     blank template pre-shaped for a software engineer
+profile.senior_software_engineer_template.yaml       fully worked (fictional) example of a filled-in profile
 ```
 
 ## Tests

@@ -3,9 +3,10 @@ prompt construction, and the DB round-trip (save_evaluation -> CSV output).
 Doesn't call Anthropic — that needs a real API key and costs money, so it's
 excluded from this offline test. Run with: python -m app.tests.test_ai_evaluate
 
-Loads profile.example.yaml rather than profile.yaml (which is gitignored
-and holds your real, personal experience) so this test works the same for
-everyone regardless of what's in their own profile.
+Loads profile.senior_software_engineer_template_2.yaml rather than
+profile.yaml (which is gitignored and holds your real, personal
+experience) so this test works the same for everyone regardless of what's
+in their own profile.
 """
 import os
 
@@ -20,7 +21,7 @@ def main():
         os.remove(TEST_DB)
 
     # --- profile loads and is well-formed enough to dump into a prompt ---
-    profile = ai_evaluate.load_profile("profile.example.yaml")
+    profile = ai_evaluate.load_profile("profile.senior_software_engineer_template_2.yaml")
     assert profile["identity"]["name"]
     assert "backend_architecture" in profile["competencies"]
     print("Profile loaded OK:", profile["identity"]["headline"])

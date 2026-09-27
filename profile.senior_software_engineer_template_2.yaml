@@ -3,11 +3,14 @@
 # by job title, so the model judges FUNCTIONAL FIT against a role rather
 # than pattern-matching on past job titles.
 #
-# This is a TEMPLATE with placeholder content. Copy it to `profile.yaml`
-# (already gitignored — it's never committed) and replace every field with
-# your own real experience:
+# This is a TEMPLATE with placeholder content, pre-shaped for a software
+# engineer profile. Copy it to `profile.yaml` (already gitignored — it's
+# never committed) and replace every field with your own real experience:
 #
-#   cp profile.example.yaml profile.yaml
+#   cp profile.senior_software_engineer_template_2.yaml profile.yaml
+#
+# Not a software engineer, or want a more general/adaptable starting
+# point instead? See profile.general_template.yaml.
 
 identity:
   name: "Your Name"

@@ -1,0 +1,153 @@
+# Candidate profile template
+# ------------------------------------------------------------------
+# QUICK START — let Claude fill this in for you:
+#   1. Open a new chat in Claude (claude.ai or the Claude app).
+#   2. Attach your resume (PDF, .docx, or pasted text).
+#   3. Paste this entire template into the same message, along with
+#      the prompt below, and send.
+#
+#   Prompt to copy:
+#   "Using my attached resume, fill in every <PLACEHOLDER> in this YAML
+#    template. Keep the structure and field names. Rename or replace
+#    competency categories so they fit my background. Write evidence
+#    bullets as: action + what I built + tools + measurable result
+#    (company). Only use facts from my resume. Where information is
+#    missing (like location preferences or constraints), leave the
+#    placeholder and list what I still need to fill in at the end."
+#
+#   4. Review the result, correct anything inaccurate, and fill in any
+#      remaining placeholders yourself.
+#
+# Or fill it in by hand: replace every <PLACEHOLDER> with your own
+# details and delete any sections or examples that don't apply to you.
+#
+# Tips:
+#   - Build this from your most complete ("master") resume.
+#   - Evidence bullets work best as: Action verb + what you built +
+#     tools used + measurable result + (Company / Project).
+#   - Numbers (%, hours saved, $, records, latency, TB) make the
+#     evidence far more useful when tailoring resumes or cover letters.
+#
+# Source resume: <YOUR_MASTER_RESUME_FILENAME>
+#
+# Target roles: <ROLE_1>, <ROLE_2>, <ROLE_3>
+#   e.g. Data Engineer, Senior Data Engineer, Data Platform Engineer
+
+identity:
+  name: "<FULL_NAME>"
+  headline: "<TITLE — SPECIALTIES (KEY TOOLS)>"
+  # e.g. "Senior Data Engineer — Lakehouse & Streaming (AWS, Snowflake, Databricks)"
+  years_experience: <NUMBER>
+  location: "<CITY, STATE/PROVINCE, COUNTRY>"
+  location_constraints: >
+    <Where you're based, work authorization / citizenship, remote history,
+    and which locations or work arrangements (remote, hybrid, on-site)
+    you're targeting, in priority order.>
+  education:
+    - "<DEGREE>, <FIELD>, <INSTITUTION> (<YEAR>)"
+    - "<CERTIFICATION or PROGRAM>, <PROVIDER> (<YEAR>)"
+    # add or remove lines as needed
+
+core_stack:
+  languages_frameworks: [
+      "<LANGUAGE_OR_FRAMEWORK>",
+      "<LANGUAGE_OR_FRAMEWORK>",
+      # e.g. "Python", "SQL", "PySpark", "dbt"
+    ]
+  ai_genai: [
+      "<AI_TOOL_OR_SKILL>",
+      # e.g. "Claude Code", "RAG (chunking, embeddings, vector retrieval)"
+    ]
+  data_infra:
+    - "<PLATFORM_OR_TOOL>"
+    - "<PLATFORM_OR_TOOL>"
+    # e.g. "Snowflake", "Apache Kafka", "Terraform", "Airflow"
+
+# ------------------------------------------------------------------
+# Competencies
+# Keep, rename, or replace these categories to match your field.
+# Each one needs a short summary plus 1–4 evidence bullets.
+# ------------------------------------------------------------------
+competencies:
+  streaming_and_realtime:
+    summary: >
+      <1–2 sentences on how you build and run real-time pipelines.>
+    evidence:
+      - "<Action + what you built + tools + measurable result (Company)>"
+      - "<Action + what you built + tools + measurable result (Personal project)>"
+
+  lakehouse_and_platform_architecture:
+    summary: >
+      <1–2 sentences on the platform / architecture work you do.>
+    evidence:
+      - "<Evidence bullet (Company)>"
+      - "<Evidence bullet (Company)>"
+
+  ingestion_and_pipeline_engineering:
+    summary: >
+      <1–2 sentences on ETL/ELT, reverse-ETL, or ingestion work.>
+    evidence:
+      - "<Evidence bullet (Company)>"
+      - "<Evidence bullet (Company)>"
+
+  data_modeling_and_analytics_engineering:
+    summary: >
+      <1–2 sentences on data modeling approach (e.g. dimensional, medallion).>
+    evidence:
+      - "<Evidence bullet (Company)>"
+
+  data_quality_observability_and_reliability:
+    summary: >
+      <1–2 sentences on testing, monitoring, alerting, on-call.>
+    evidence:
+      - "<Evidence bullet (Company)>"
+
+  devops_and_infrastructure_as_code:
+    summary: >
+      <1–2 sentences on IaC, CI/CD, and delivery tooling.>
+    evidence:
+      - "<Evidence bullet (Company)>"
+
+  ai_assisted_engineering:
+    summary: >
+      <1–2 sentences on how you use AI tools in your workflow, and any
+      safeguards you apply.>
+    evidence:
+      - "<Evidence bullet (Company)>"
+
+  technical_leadership:
+    summary: >
+      <1–2 sentences on ownership, decision-making, and mentoring.>
+    evidence:
+      - "<Evidence bullet (Company)>"
+
+  cost_and_ops_impact:
+    summary: >
+      <1–2 sentences on cost, efficiency, and time savings you drive.>
+    evidence:
+      - "<Evidence bullet with $ / TB / hours saved (Company)>"
+
+# ------------------------------------------------------------------
+# Experience timeline (most recent first)
+# ------------------------------------------------------------------
+experience_timeline:
+  - company: "<COMPANY_NAME>"
+    dates: "<START_YEAR>-<END_YEAR or present>"
+    title: "<JOB_TITLE>"
+    domain: "<INDUSTRY / PRODUCT> (<remote/hybrid/on-site>, <CITY>)"
+    stack: ["<TOOL>", "<TOOL>"]
+  - company: "<COMPANY_NAME> (<Contract/Full-time>)"
+    dates: "<START_YEAR>-<END_YEAR>"
+    title: "<JOB_TITLE>"
+    domain: "<INDUSTRY / CLIENT TYPES> (<remote/hybrid/on-site>, <CITY>)"
+    stack: ["<TOOL>", "<TOOL>"]
+
+# ------------------------------------------------------------------
+# Job-search constraints and preferences
+# ------------------------------------------------------------------
+constraints:
+  - "<Target roles and the kind of work you fit best>"
+  - "<Track preference, e.g. individual contributor only / open to management>"
+  - "<Employment type, e.g. full-time only / open to contract>"
+  - "<Location priority, e.g. Country X first; Country Y if they can hire in X>"
+  - "<Compensation stance, e.g. open / minimum of <AMOUNT>>"
