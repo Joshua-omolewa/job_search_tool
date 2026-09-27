@@ -988,3 +988,172 @@ companies:
   - name: PayPal
     ats: workday
     slug: paypal.wd1/jobs # Senior Data Engineer + cloud data infrastructure roles
+
+  # --- Added 2026-09-27: Forbes Global 2000 tech-sector scan (US/Canada HQ,
+  # IT Software & Services / Semiconductors / Technology Hardware & Equipment /
+  # Telecommunications Services industries) ---
+  # Every slug below was verified live against its ATS's real public API on
+  # 2026-09-27 (job count noted per entry); Workday tenant/pod combos were each
+  # confirmed against a live POST returning total > 0, not guessed. Most Forbes
+  # Global 2000 companies checked in this pass (Alphabet, Apple, Microsoft, Meta,
+  # IBM, Oracle, Netflix, AMD, Dell, Qualcomm, and ~35 others) run fully custom or
+  # unsupported enterprise ATS platforms (Taleo, SuccessFactors, iCIMS, Eightfold,
+  # Oracle Cloud Recruiting, Phenom, Avature, Cornerstone OnDemand) and were
+  # deliberately left out — not silently skipped, just not addable with this
+  # tool's supported ATS list.
+  # Greenhouse
+  - name: AppLovin
+    ats: greenhouse
+    slug: applovin # 44 jobs
+  - name: CoreWeave
+    ats: greenhouse
+    slug: coreweave # 305 jobs
+  - name: Ubiquiti
+    ats: greenhouse
+    slug: ubiquiti # 179 jobs
+  - name: VeriSign
+    ats: greenhouse
+    slug: verisign # 24 jobs
+  - name: Reddit
+    ats: greenhouse
+    slug: reddit # 150 jobs
+  - name: Datadog
+    ats: greenhouse
+    slug: datadog # 449 jobs
+  - name: Take-Two Interactive Software
+    ats: greenhouse
+    slug: taketwo # 35 jobs
+  - name: Astera Labs
+    ats: greenhouse
+    slug: asteralabs # 172 jobs
+  - name: Roblox
+    ats: greenhouse
+    slug: roblox # 257 jobs
+  - name: Twilio
+    ats: greenhouse
+    slug: twilio # 138 jobs
+  - name: Pure Storage
+    ats: greenhouse
+    slug: purestorage # 369 jobs — Forbes-listed as 'Everpure'
+  - name: Zscaler
+    ats: greenhouse
+    slug: zscaler # 380 jobs
+
+  # Ashby
+  - name: Circle
+    ats: ashby
+    slug: circle # 9 jobs
+  - name: Cerebras Systems
+    ats: ashby
+    slug: cerebras # 112 jobs
+
+  # Lever
+  - name: Veeva Systems
+    ats: lever
+    slug: veeva # 916 jobs
+
+  # SmartRecruiters
+  - name: Sandisk
+    ats: smartrecruiters
+    slug: Sandisk # 0 postings currently — board is real/live (totalFound:0), same pattern as existing Treewalk entry
+  - name: ServiceNow
+    ats: smartrecruiters
+    slug: servicenow # 701 postings
+  - name: Western Digital
+    ats: smartrecruiters
+    slug: westerndigital # 335 postings
+  - name: NetApp
+    ats: smartrecruiters
+    slug: NetApp2 # 9 postings
+
+  # Workday
+  - name: Verizon Communications
+    ats: workday
+    slug: verizon.wd12/verizon-careers # total=1112 (pod verified: wd12)
+  - name: AT&T
+    ats: workday
+    slug: att.wd1/ATTGeneral # total=1226 (pod verified: wd1)
+  - name: Broadcom
+    ats: workday
+    slug: broadcom.wd1/External_Career # total=373 (pod verified: wd1)
+  - name: Cisco Systems
+    ats: workday
+    slug: cisco.wd5/Cisco_Careers # total=1327 (pod verified: wd5)
+  - name: Analog Devices
+    ats: workday
+    slug: analogdevices.wd1/External # total=853 (pod verified: wd1)
+  - name: HP
+    ats: workday
+    slug: hp.wd5/ExternalCareerSite # total=924 (pod verified: wd5)
+  - name: KLA
+    ats: workday
+    slug: kla.wd1/Search # total=1030 (pod verified: wd1)
+  - name: Fidelity National Information (FIS)
+    ats: workday
+    slug: fis.wd5/SearchJobs # total=495 (pod verified: wd5)
+  - name: Marvell Technology
+    ats: workday
+    slug: marvell.wd1/MarvellCareers # total=251 (pod verified: wd1)
+  - name: Flex
+    ats: workday
+    slug: flextronics.wd1/Careers # total=1607 (pod verified: wd1)
+  - name: Motorola Solutions
+    ats: workday
+    slug: motorolasolutions.wd5/Careers # total=899 (pod verified: wd5)
+  - name: Thomson Reuters
+    ats: workday
+    slug: thomsonreuters.wd5/External_Career_Site # total=462 (pod verified: wd5)
+  - name: Leidos
+    ats: workday
+    slug: leidos.wd5/External # total=2000 (pod verified: wd5)
+  - name: CDW
+    ats: workday
+    slug: cdw.wd5/Careers # total=144 (pod verified: wd5)
+  - name: Cadence Design
+    ats: workday
+    slug: cadence.wd1/External_Careers # total=610 (pod verified: wd1)
+  - name: Workday
+    ats: workday
+    slug: workday.wd5/Workday # total=382 (pod verified: wd5)
+  - name: Zoom Video Communications
+    ats: workday
+    slug: zoom.wd5/Zoom # total=96 (pod verified: wd5)
+  - name: GlobalFoundries
+    ats: workday
+    slug: globalfoundries.wd1/External # total=693 (pod verified: wd1)
+  - name: Monolithic Power Systems
+    ats: workday
+    slug: monolithicpower.wd12/MPS_Careers # total=251 (pod verified: wd12)
+  - name: Ingram Micro Holding
+    ats: workday
+    slug: ingrammicro.wd5/IngramMicro # total=512 (pod verified: wd5)
+  - name: Broadridge Financial
+    ats: workday
+    slug: broadridge.wd5/Careers # total=268 (pod verified: wd5)
+  - name: CrowdStrike
+    ats: workday
+    slug: crowdstrike.wd5/crowdstrikecareers # total=365 (pod verified: wd5)
+  - name: PTC
+    ats: workday
+    slug: ptc.wd1/PTC # total=165 (pod verified: wd1)
+  - name: SS&C Technologies
+    ats: workday
+    slug: ssctech.wd1/SSCTechnologies # total=348 (pod verified: wd1)
+  - name: Bloom Energy
+    ats: workday
+    slug: bloomenergy.wd1/BloomEnergyCareers # total=180 (pod verified: wd1)
+  - name: Ciena
+    ats: workday
+    slug: ciena.wd5/Careers # total=146 (pod verified: wd5)
+  - name: Microchip Technology
+    ats: workday
+    slug: microchiphr.wd5/External # total=478 (pod verified: wd5)
+  - name: F5
+    ats: workday
+    slug: ffive.wd5/f5jobs # total=220 (pod verified: wd5)
+  - name: Gen Digital
+    ats: workday
+    slug: gen.wd1/careers # total=2 (pod verified: wd1)
+  - name: Nextracker
+    ats: workday
+    slug: nextracker.wd5/nextpower_careers # total=227 (pod verified: wd5) — Forbes-listed as 'Nextpower'
