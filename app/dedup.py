@@ -45,7 +45,8 @@ CREATE TABLE IF NOT EXISTS job_details (
     description TEXT,
     passed_filters INTEGER,
     fetched_at TEXT DEFAULT CURRENT_TIMESTAMP,
-    source TEXT
+    source TEXT,
+    salary TEXT
 );
 
 CREATE TABLE IF NOT EXISTS ai_evaluations (
@@ -92,10 +93,13 @@ def make_company_title_key(company: str, title: str, location: str = "") -> str:
 def _migrate(conn) -> None:
     """SCHEMA's CREATE TABLE IF NOT EXISTS only handles brand-new DBs —
     columns added later need an explicit ALTER TABLE for a DB file that
-    already exists (e.g. `source`, added 2026-08-12)."""
+    already exists (e.g. `source`, added 2026-08-12; `salary`, added
+    2026-09-26)."""
     existing = {row[1] for row in conn.execute("PRAGMA table_info(job_details)")}
     if "source" not in existing:
         conn.execute("ALTER TABLE job_details ADD COLUMN source TEXT")
+    if "salary" not in existing:
+        conn.execute("ALTER TABLE job_details ADD COLUMN salary TEXT")
 
 
 @contextmanager
@@ -137,8 +141,8 @@ def save_details(conn, job: dict, passed_filters: bool) -> None:
     decisions later without re-fetching anything."""
     conn.execute(
         "INSERT OR REPLACE INTO job_details "
-        "(url, company, title, location, posted_at, description, passed_filters, source) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        "(url, company, title, location, posted_at, description, passed_filters, source, salary) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (
             job.get("url", ""),
             job.get("company", ""),
@@ -148,20 +152,21 @@ def save_details(conn, job: dict, passed_filters: bool) -> None:
             job.get("description", ""),
             1 if passed_filters else 0,
             job.get("source", ""),
+            job.get("salary"),
         ),
     )
 
 
 def get_details_by_url(conn, url: str) -> dict | None:
     cur = conn.execute(
-        "SELECT url, company, title, location, posted_at, description, passed_filters, fetched_at, source "
+        "SELECT url, company, title, location, posted_at, description, passed_filters, fetched_at, source, salary "
         "FROM job_details WHERE url = ?",
         (url,),
     )
     row = cur.fetchone()
     if row is None:
         return None
-    keys = ["url", "company", "title", "location", "posted_at", "description", "passed_filters", "fetched_at", "source"]
+    keys = ["url", "company", "title", "location", "posted_at", "description", "passed_filters", "fetched_at", "source", "salary"]
     return dict(zip(keys, row))
 
 

@@ -2,7 +2,8 @@
 employers), as opposed to ats_clients.py which is one board per company.
 
 Same output shape as ats_clients.py:
-    {"company": str, "title": str, "location": str, "url": str, "posted_at": str|None}
+    {"company": str, "title": str, "location": str, "url": str,
+     "posted_at": str|None, "salary": str|None}
 
 Same sandbox caveat as ats_clients.py: outbound calls to these domains were
 not testable live from this cloud dev environment (network allowlist), only
@@ -27,6 +28,27 @@ FULL_JD_TIMEOUT = 10.0  # shorter: this is a best-effort extra request per job, 
 # discover_companies.py for what reads this after a run. Each process run
 # starts with an empty list, so there's no cross-run leakage to worry about.
 DISCOVERED_COMPANIES: list[dict] = []
+
+
+def _format_adzuna_salary(salary_min, salary_max, is_predicted) -> str | None:
+    # Adzuna gives raw numbers, no currency field — implied by the country
+    # in the endpoint path, which fetch_adzuna hardcodes to /ca/ below, so
+    # this hardcodes "CAD" to match (confirmed live 2026-09-26: real
+    # salary_min/salary_max/salary_is_predicted values). `is_predicted`
+    # means Adzuna's own ML estimate, not an employer-disclosed figure —
+    # flagged with "(est.)" so it doesn't read as a real posted salary.
+    def _num(v):
+        try:
+            return f"{float(v):,.0f}"
+        except (TypeError, ValueError):
+            return None
+
+    lo, hi = _num(salary_min), _num(salary_max)
+    if not lo and not hi:
+        return None
+    amount = f"{lo}–{hi}" if lo and hi and lo != hi else (lo or hi)
+    text = f"{amount} CAD/year"
+    return f"{text} (est.)" if is_predicted else text
 
 _GREENHOUSE_URL_RE = re.compile(r"(?:job-boards|boards)\.greenhouse\.io/([^/]+)/jobs/(\d+)")
 _LEVER_URL_RE = re.compile(r"jobs\.lever\.co/([^/]+)/([0-9a-f-]{36})")
@@ -303,6 +325,7 @@ def fetch_adzuna(params: dict) -> list[dict]:
                 "url": redirect_url,
                 "posted_at": j.get("created"),
                 "description": description,
+                "salary": _format_adzuna_salary(j.get("salary_min"), j.get("salary_max"), j.get("salary_is_predicted")),
             })
 
         if len(results) < results_per_page:
@@ -325,6 +348,10 @@ def fetch_remotive(params: dict) -> list[dict]:
             "url": j.get("url", ""),
             "posted_at": j.get("publication_date"),
             "description": j.get("description", ""),  # full HTML per Remotive's docs
+            # A plain human-readable string when given at all (e.g. "$90k -
+            # $105k", "$90 - $150 /hour") — confirmed live 2026-09-26, most
+            # postings leave it "".
+            "salary": j.get("salary") or None,
         })
     return jobs
 

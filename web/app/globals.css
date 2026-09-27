@@ -73,6 +73,7 @@ tbody tr:hover { background: var(--bg); }
 tbody td { padding: 10px 14px; font-size: 14px; vertical-align: middle; }
 .company-cell { font-weight: 600; }
 .loc-cell { color: var(--text-dim); font-size: 13px; }
+.salary-cell { color: var(--text-dim); font-size: 13px; white-space: nowrap; }
 .score-cell { font-variant-numeric: tabular-nums; font-weight: 600; }
 
 .badge {

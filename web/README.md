@@ -36,9 +36,9 @@ Only jobs that passed the deterministic filter (`passed_filters = 1`). Each row 
   suggestion, since one is "should I apply" and the other is "what actually happened".
 - Notes — free text, editable from the detail panel.
 
-Filter by either status, search by company/title, sort any column, click a row to open
-the full JD plus the AI's reasoning (gaps / strengths / risk factors) and edit
-status+notes.
+Filter by either status, filter by location, search by company/title, sort any column,
+click a row to open the full JD plus the AI's reasoning (gaps / strengths / risk
+factors) and edit status+notes.
 
 ## Production build
 

@@ -1,4 +1,4 @@
-export type SortKey = "company" | "title" | "location" | "match_score" | "status" | "my_status" | "posted_at";
+export type SortKey = "company" | "title" | "location" | "salary" | "match_score" | "status" | "my_status" | "posted_at";
 export type SortDir = "asc" | "desc";
 export type SaveState = "idle" | "saving" | "saved" | "error";
 
@@ -9,6 +9,7 @@ export type Job = {
     location: string;
     posted_at: string | null;
     description: string;
+    salary: string | null;
     match_score: number | null;
     recommendation: string | null;
     genuine_gaps: string | null;

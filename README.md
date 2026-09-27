@@ -18,8 +18,8 @@ is sent to a third party beyond fetching the postings themselves.
 
 1. **Fetch** (`app/main.py`) — pulls open roles from:
    - `companies.yaml` — known companies queried directly via their ATS
-     (Greenhouse, Ashby, Workable, Lever, SmartRecruiters) — precise, low
-     noise.
+     (Greenhouse, Ashby, Workable, Lever, SmartRecruiters, Workday,
+     BambooHR, Rippling, Teamtailor, Gem) — precise, low noise.
    - `aggregators.yaml` — broad keyword+location search across many
      employers at once (Adzuna, Remotive) — wider reach, more noise.
 2. **Filter** (`app/filters.py`) — drops anything that isn't an
@@ -36,6 +36,7 @@ is sent to a third party beyond fetching the postings themselves.
 5. **Review** (`web/`) — a local Next.js app reading/writing the same
    SQLite database directly, for browsing results and tracking your own
    `applied / interview / rejected / skipped / silence` status and notes.
+   Filter by AI status, your status, location, or free-text search.
 
 ## Setup
 
@@ -145,7 +146,10 @@ Thin wrappers over the commands above — run from the repo root:
 ## Configuration
 
 - **`companies.yaml`** — the company registry (name, ATS type, slug). Add
-  a company here once you've identified its ATS.
+  a company here once you've identified its ATS — see the file's header
+  comment for each supported ATS's slug format (Greenhouse, Ashby,
+  Workable, Lever, SmartRecruiters, Workday, BambooHR, Rippling,
+  Teamtailor, Gem).
 - **`aggregators.yaml`** — aggregator search config (keywords, location,
   pagination limits).
 - **`filters.yaml`** — title allowlist/exclusion keywords, location
@@ -191,19 +195,26 @@ None of them call live external APIs.
 
 ## Notes on scope
 
-- ATS fetchers for Greenhouse, Ashby, Workable, and Lever were each
-  validated against real live responses. SmartRecruiters support is built
-  from documentation and third-party corroboration only — verify a new
-  SmartRecruiters company with `python -m app.main --company <slug>`
-  before trusting it in a real run.
+- ATS fetchers for Greenhouse, Ashby, Workable, Lever, BambooHR, Rippling,
+  and Teamtailor were each validated against real live responses.
+  SmartRecruiters support is built from documentation and third-party
+  corroboration only — verify a new SmartRecruiters company with
+  `python -m app.main --company <slug>` before trusting it in a real run.
+- Workday and Gem support call the same undocumented internal API each
+  platform's own public careers page uses (not a published product for
+  either) — verified live against several real companies, but could
+  change without notice. If a newly-added Workday or Gem company comes
+  back with 0 jobs, verify the slug against a live network request from
+  that company's careers page before assuming the code is wrong — see the
+  CONFIDENCE NOTEs in `app/ats_clients.py` for how each was reverse-engineered.
+- Workday's fetcher parallelizes both list-page pagination and per-job
+  detail requests, since a large board (thousands of postings) made of
+  sequential one-at-a-time requests was slow enough to matter in practice.
 - If a particular company's fetch fails, `main.py` logs a warning and
   continues with the rest rather than crashing the whole run.
 
 ## Possible next steps
 
-- Workday support (`clio.wd3.myworkdayjobs.com`-style boards) — its
-  job-search API is POST-based with a different pagination shape than the
-  ATSes currently supported.
 - Company-name normalization for aggregator-sourced dedup (the same
   posting sometimes comes back under slightly different company name
   strings, e.g. "Acme Corp" vs. "Acme").

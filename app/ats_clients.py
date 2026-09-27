@@ -2,7 +2,7 @@
 
 Every function returns a list of plain dicts with a common shape:
     {"company": str, "title": str, "location": str, "url": str,
-     "posted_at": str|None, "description": str}
+     "posted_at": str|None, "description": str, "salary": str|None}
 
 `description` is HTML or plain text, whatever the ATS gives us, and is
 consumed by filters.jd_stack_mismatch() for the JD-based stack dealbreaker
@@ -12,6 +12,17 @@ default) — no extra per-job request needed, so this doesn't multiply your
 call volume. Workable's widget API may or may not include it depending on
 account; if absent, `description` is just "" and the stack check is
 skipped for that job (title/location filters still apply).
+
+`salary` (added 2026-09-26) is a best-effort "X–Y CUR/period" string —
+None where the ATS discloses nothing structured, which is most of them.
+Confirmed live with real, populated data: Lever (`salaryRange`,
+list-level, no gating), SmartRecruiters (`compensation`, detail-level, so
+only for gated/matched postings), Teamtailor (`baseSalary`, list-level).
+Confirmed the field EXISTS but never saw it populated on a real posting
+(best-effort parsing, could be wrong if the real shape differs): BambooHR
+(`compensation`), Rippling (`payRangeDetails`), Gem (`compensationHtml`).
+No structured field found at all, always None: Greenhouse, Ashby,
+Workable, Workday.
 
 NOTE ON THIS SANDBOX: outbound HTTP to arbitrary domains (e.g.
 boards-api.greenhouse.io) is blocked by this cloud environment's network
@@ -115,6 +126,72 @@ def _epoch_seconds_to_iso(sec: int | None) -> str | None:
     return datetime.fromtimestamp(sec, tz=timezone.utc).isoformat()
 
 
+def _format_money_range(min_val, max_val, currency: str | None, period: str | None) -> str | None:
+    """Best-effort human-readable "X–Y CUR/period" string from whatever
+    min/max/currency/period values an ATS gives us. None if there's no
+    usable number at all (a currency/period with no amount is useless)."""
+    def _num(v):
+        try:
+            return f"{float(v):,.0f}"
+        except (TypeError, ValueError):
+            return None
+
+    lo, hi = _num(min_val), _num(max_val)
+    if not lo and not hi:
+        return None
+    amount = f"{lo}–{hi}" if lo and hi and lo != hi else (lo or hi)
+    text = " ".join(p for p in (amount, currency) if p)
+    return f"{text}/{period}" if period else text
+
+
+def _lever_interval_to_period(interval: str | None) -> str | None:
+    # e.g. "per-year-salary" -> "year", "per-hour-wage" -> "hour".
+    if not interval:
+        return None
+    label = interval.removeprefix("per-")
+    for suffix in ("-salary", "-wage"):
+        if label.endswith(suffix):
+            label = label[: -len(suffix)]
+    return label or None
+
+
+_SMARTRECRUITERS_PERIOD_LABELS = {
+    "YEARLY": "year", "MONTHLY": "month", "HOURLY": "hour", "WEEKLY": "week", "DAILY": "day",
+}
+
+
+def _generic_compensation_to_salary(value) -> str | None:
+    """Best-effort formatting for an ATS-specific compensation field whose
+    exact POPULATED shape isn't confirmed live — the field exists in the
+    API (BambooHR's `compensation`, Rippling's `payRangeDetails`) but was
+    null/empty in every real posting sampled during development, so this
+    can't be pinned down the way Lever/SmartRecruiters/Teamtailor's shapes
+    were. Handles a plain string, or a dict with recognizable
+    min/max/currency/period-ish keys under common aliases; a list takes its
+    first entry (Rippling: one entry per work location). Returns None for
+    anything else rather than risk showing garbled text."""
+    if isinstance(value, list):
+        value = value[0] if value else None
+    if not value:
+        return None
+    if isinstance(value, str):
+        return value.strip() or None
+    if isinstance(value, dict):
+        def pick(*names):
+            for n in names:
+                v = value.get(n)
+                if v is not None:
+                    return v
+            return None
+        min_v = pick("min", "minValue", "low", "minimum")
+        max_v = pick("max", "maxValue", "high", "maximum")
+        currency = pick("currency", "currencyCode")
+        period = pick("period", "interval", "unitText", "unit")
+        if min_v is not None or max_v is not None:
+            return _format_money_range(min_v, max_v, currency, (period or "").lower() or None)
+    return None
+
+
 def fetch_greenhouse(company_display_name: str, slug: str) -> list[dict]:
     url = f"https://boards-api.greenhouse.io/v1/boards/{slug}/jobs"
     resp = httpx.get(
@@ -131,6 +208,12 @@ def fetch_greenhouse(company_display_name: str, slug: str) -> list[dict]:
             "url": j.get("absolute_url", ""),
             "posted_at": j.get("first_published") or j.get("updated_at"),
             "description": j.get("content", ""),  # HTML
+            # No structured salary field in Greenhouse's public API — spot-
+            # checked several companies' `metadata` custom fields and JD
+            # content for a salary/compensation entry, found none with a
+            # consistent name across accounts. When disclosed at all, it's
+            # free text buried in the JD body, not worth regex-guessing.
+            "salary": None,
         })
     return jobs
 
@@ -151,6 +234,10 @@ def fetch_ashby(company_display_name: str, slug: str) -> list[dict]:
             "url": j.get("jobUrl") or j.get("applyUrl", ""),
             "posted_at": j.get("publishedAt"),
             "description": j.get("descriptionPlain") or j.get("descriptionHtml") or "",
+            # No compensation field anywhere in Ashby's public posting API
+            # (confirmed live across several companies) — not even a null
+            # key, so there's nothing to extract.
+            "salary": None,
         })
     return jobs
 
@@ -177,6 +264,8 @@ def fetch_workable(company_display_name: str, slug: str) -> list[dict]:
             # field across all accounts — treat missing as unknown, not
             # as "no dealbreaker language", filters.py handles empty safely.
             "description": j.get("description", ""),
+            # No salary field in Workable's widget API (confirmed live).
+            "salary": None,
         })
     return jobs
 
@@ -194,6 +283,16 @@ def fetch_lever(company_display_name: str, slug: str) -> list[dict]:
         all_locs = cats.get("allLocations") or []
         if all_locs:
             loc = ", ".join(all_locs)
+        # Lever's public API DOES expose a structured salary field when a
+        # company has pay transparency enabled (confirmed live — real data
+        # on several companies, e.g. {"min": 150000, "max": 200000,
+        # "currency": "USD", "interval": "per-year-salary"}); empty/absent
+        # otherwise, same as everything else here.
+        salary_range = j.get("salaryRange") or {}
+        salary = _format_money_range(
+            salary_range.get("min"), salary_range.get("max"),
+            salary_range.get("currency"), _lever_interval_to_period(salary_range.get("interval")),
+        )
         jobs.append({
             "company": company_display_name,
             "title": j.get("text", ""),
@@ -201,30 +300,44 @@ def fetch_lever(company_display_name: str, slug: str) -> list[dict]:
             "url": j.get("hostedUrl", ""),
             "posted_at": _epoch_millis_to_iso(j.get("createdAt")),
             "description": j.get("descriptionPlain") or j.get("description", ""),
+            "salary": salary,
         })
     return jobs
 
 
-def _fetch_smartrecruiters_description(slug: str, posting_id: str) -> str:
+def _fetch_smartrecruiters_detail(slug: str, posting_id: str) -> dict:
     """SmartRecruiters' list endpoint (fetch_smartrecruiters below) doesn't
     include the JD text — only the per-posting detail endpoint does, one
     extra request per job. Best-effort: any failure (private board, 404,
-    timeout) just means no description, not a crashed run; filters.py
-    treats an empty description as "unknown, don't reject on stack alone"."""
+    timeout) just means no description/salary, not a crashed run;
+    filters.py treats an empty description as "unknown, don't reject on
+    stack alone".
+
+    The same detail response also carries a structured `compensation`
+    field ({"min", "max", "currency", "period"}, e.g. {"min": 150000,
+    "max": 170000, "currency": "CAD", "period": "YEARLY"}) when the
+    company discloses pay — confirmed live — so this comes for free
+    alongside the description, no extra request."""
     try:
         resp = httpx.get(
             f"https://api.smartrecruiters.com/v1/companies/{slug}/postings/{posting_id}",
             headers={"User-Agent": USER_AGENT}, timeout=TIMEOUT,
         )
         resp.raise_for_status()
-        sections = (resp.json().get("jobAd") or {}).get("sections") or {}
+        data = resp.json()
+        sections = (data.get("jobAd") or {}).get("sections") or {}
         parts = [
             (sections.get(key) or {}).get("text", "")
             for key in ("jobDescription", "qualifications", "additionalInformation")
         ]
-        return "\n\n".join(p for p in parts if p)
+        comp = data.get("compensation") or {}
+        salary = _format_money_range(
+            comp.get("min"), comp.get("max"), comp.get("currency"),
+            _SMARTRECRUITERS_PERIOD_LABELS.get(comp.get("period"), (comp.get("period") or "").lower() or None),
+        )
+        return {"description": "\n\n".join(p for p in parts if p), "salary": salary}
     except Exception:
-        return ""
+        return {"description": "", "salary": None}
 
 
 def fetch_smartrecruiters(company_display_name: str, slug: str) -> list[dict]:
@@ -265,15 +378,20 @@ def fetch_smartrecruiters(company_display_name: str, slug: str) -> list[dict]:
                 continue
 
             description = ""
+            salary = None
             # Only worth the extra per-job request (see
-            # _fetch_smartrecruiters_description) for postings that
-            # already look like real candidates — same gating idea as
+            # _fetch_smartrecruiters_detail) for postings that already
+            # look like real candidates — same gating idea as
             # aggregator_clients.fetch_adzuna uses for its full-JD fetch,
             # so a company with hundreds of postings doesn't turn into
             # hundreds of extra requests for roles that'd get filtered
-            # out on title/location alone anyway.
+            # out on title/location alone anyway. Salary rides along with
+            # that same request, so it's only ever populated for postings
+            # that pass this gate too.
             if posting_id and filters.title_is_relevant(title) and filters.location_is_allowed(loc_str):
-                description = _fetch_smartrecruiters_description(slug, posting_id)
+                detail = _fetch_smartrecruiters_detail(slug, posting_id)
+                description = detail["description"]
+                salary = detail["salary"]
 
             jobs.append({
                 "company": company_display_name,
@@ -282,6 +400,7 @@ def fetch_smartrecruiters(company_display_name: str, slug: str) -> list[dict]:
                 "url": job_url,
                 "posted_at": p.get("releasedDate"),
                 "description": description,
+                "salary": salary,
             })
 
         if len(content) < limit:
@@ -421,6 +540,11 @@ def fetch_workday(company_display_name: str, slug: str) -> list[dict]:
             "url": f"https://{host}.myworkdayjobs.com/{site}{external_path}",
             "posted_at": None,
             "description": "",
+            # No structured compensation field anywhere in the CXS API
+            # (checked jobPostingInfo's full key list across 4 different
+            # tenants) — when disclosed, it's free text inside
+            # jobDescription, not worth regex-guessing.
+            "salary": None,
         })
 
         # Only worth the extra per-job request for postings that already
@@ -458,7 +582,12 @@ def _fetch_bamboohr_detail(base_url: str, job_id: str) -> dict:
     """The list endpoint has no description and no real posted date — both
     live on the per-job detail endpoint, one extra request per job.
     Best-effort: any failure just means no description/date, not a crashed
-    run, same as _fetch_smartrecruiters_description."""
+    run, same as _fetch_smartrecruiters_detail.
+
+    The detail response does have a `compensation` field (confirmed it
+    exists live) but every real posting sampled during development had it
+    null, so its populated shape is unconfirmed —
+    _generic_compensation_to_salary makes a best effort."""
     try:
         resp = httpx.get(
             f"{base_url}/{job_id}/detail",
@@ -467,9 +596,13 @@ def _fetch_bamboohr_detail(base_url: str, job_id: str) -> dict:
         )
         resp.raise_for_status()
         info = (resp.json().get("result") or {}).get("jobOpening") or {}
-        return {"description": info.get("description", ""), "posted_at": info.get("datePosted")}
+        return {
+            "description": info.get("description", ""),
+            "posted_at": info.get("datePosted"),
+            "salary": _generic_compensation_to_salary(info.get("compensation")),
+        }
     except Exception:
-        return {"description": "", "posted_at": None}
+        return {"description": "", "posted_at": None, "salary": None}
 
 
 def fetch_bamboohr(company_display_name: str, slug: str) -> list[dict]:
@@ -501,6 +634,7 @@ def fetch_bamboohr(company_display_name: str, slug: str) -> list[dict]:
 
         description = ""
         posted_at = None
+        salary = None
         # Only worth the extra per-job request for postings that already
         # look like real candidates — same gating idea as
         # fetch_smartrecruiters/fetch_workday.
@@ -508,6 +642,7 @@ def fetch_bamboohr(company_display_name: str, slug: str) -> list[dict]:
             detail = _fetch_bamboohr_detail(base, job_id)
             description = detail["description"]
             posted_at = detail["posted_at"]
+            salary = detail["salary"]
 
         jobs.append({
             "company": company_display_name,
@@ -516,6 +651,7 @@ def fetch_bamboohr(company_display_name: str, slug: str) -> list[dict]:
             "url": f"{base}/{job_id}",
             "posted_at": posted_at,
             "description": description,
+            "salary": salary,
         })
     return jobs
 
@@ -523,7 +659,12 @@ def fetch_bamboohr(company_display_name: str, slug: str) -> list[dict]:
 def _fetch_rippling_detail(slug: str, job_uuid: str) -> dict:
     """The list endpoint has no description at all — it lives on the
     per-job detail endpoint, one extra request per job. Best-effort: any
-    failure just means no description/date, not a crashed run."""
+    failure just means no description/date, not a crashed run.
+
+    The detail response does have a `payRangeDetails` list (pay range per
+    work location, if disclosed) but every real posting sampled during
+    development had it empty, so its populated shape is unconfirmed —
+    _generic_compensation_to_salary makes a best effort."""
     try:
         resp = httpx.get(
             f"https://api.rippling.com/platform/api/ats/v1/board/{slug}/jobs/{job_uuid}",
@@ -536,9 +677,13 @@ def _fetch_rippling_detail(slug: str, job_uuid: str) -> dict:
         # "company" and "role" are separate HTML fragments (about-the-company
         # blurb + the actual role description) — join them into one JD.
         html = "\n\n".join(v for v in (desc.get("company"), desc.get("role")) if v)
-        return {"description": html, "posted_at": info.get("createdOn")}
+        return {
+            "description": html,
+            "posted_at": info.get("createdOn"),
+            "salary": _generic_compensation_to_salary(info.get("payRangeDetails")),
+        }
     except Exception:
-        return {"description": "", "posted_at": None}
+        return {"description": "", "posted_at": None, "salary": None}
 
 
 def fetch_rippling(company_display_name: str, slug: str) -> list[dict]:
@@ -581,6 +726,7 @@ def fetch_rippling(company_display_name: str, slug: str) -> list[dict]:
 
         description = ""
         posted_at = None
+        salary = None
         # Only worth the extra per-job request for postings that already
         # look like real candidates — same gating idea used throughout this
         # module.
@@ -588,6 +734,7 @@ def fetch_rippling(company_display_name: str, slug: str) -> list[dict]:
             detail = _fetch_rippling_detail(slug, job_uuid)
             description = detail["description"]
             posted_at = detail["posted_at"]
+            salary = detail["salary"]
 
         jobs.append({
             "company": company_display_name,
@@ -596,8 +743,28 @@ def fetch_rippling(company_display_name: str, slug: str) -> list[dict]:
             "url": entry["url"],
             "posted_at": posted_at,
             "description": description,
+            "salary": salary,
         })
     return jobs
+
+
+def _teamtailor_salary(jobposting: dict) -> str | None:
+    # schema.org MonetaryAmount, confirmed live and populated on real
+    # companies (Yousign, Implicity) — e.g. {"currency": "EUR", "value":
+    # {"unitText": "YEAR", "minValue": "65000", "maxValue": "85000"}}, or a
+    # single "value" instead of a min/max range for a fixed salary.
+    base_salary = jobposting.get("baseSalary")
+    if not base_salary:
+        return None
+    currency = base_salary.get("currency") or None
+    value = base_salary.get("value") or {}
+    period = (value.get("unitText") or "").lower() or None
+    min_v, max_v, single = value.get("minValue"), value.get("maxValue"), value.get("value")
+    if min_v is not None or max_v is not None:
+        return _format_money_range(min_v, max_v, currency, period)
+    if single is not None:
+        return _format_money_range(single, None, currency, period)
+    return None
 
 
 def fetch_teamtailor(company_display_name: str, slug: str) -> list[dict]:
@@ -632,6 +799,7 @@ def fetch_teamtailor(company_display_name: str, slug: str) -> list[dict]:
             "url": it.get("url", ""),
             "posted_at": it.get("date_published"),
             "description": it.get("content_html", ""),
+            "salary": _teamtailor_salary(jobposting),
         })
     return jobs
 
@@ -653,6 +821,7 @@ query ExternalJobPosting($boardId: String!, $extId: String!) {
   oatsExternalJobPosting(boardId: $boardId, extId: $extId) {
     descriptionHtml
     firstPublishedTsSec
+    compensationHtml
   }
 }
 """
@@ -672,16 +841,23 @@ def _gem_graphql(operation_name: str, query: str, variables: dict) -> dict:
 def _fetch_gem_detail(slug: str, ext_id: str) -> dict:
     """The list query has no description at all — it lives on the per-job
     detail query, one extra request per job. Best-effort: any failure just
-    means no description/date, not a crashed run."""
+    means no description/date, not a crashed run.
+
+    `compensationHtml` (a short HTML fragment, e.g. "Salary range: $X -
+    $Y") was null on every real posting sampled during development, but
+    the field itself is real — confirmed present in the app's own GraphQL
+    query — so it's extracted (stripped to plain text) when populated."""
     try:
         data = _gem_graphql("ExternalJobPosting", _GEM_DETAIL_QUERY, {"boardId": slug, "extId": ext_id})
         info = data.get("oatsExternalJobPosting") or {}
+        comp_html = info.get("compensationHtml")
         return {
             "description": info.get("descriptionHtml", ""),
             "posted_at": _epoch_seconds_to_iso(info.get("firstPublishedTsSec")),
+            "salary": filters.strip_html(comp_html).strip() if comp_html else None,
         }
     except Exception:
-        return {"description": "", "posted_at": None}
+        return {"description": "", "posted_at": None, "salary": None}
 
 
 def fetch_gem(company_display_name: str, slug: str) -> list[dict]:
@@ -707,6 +883,7 @@ def fetch_gem(company_display_name: str, slug: str) -> list[dict]:
 
         description = ""
         posted_at = None
+        salary = None
         # Only worth the extra per-job request for postings that already
         # look like real candidates — same gating idea used throughout this
         # module.
@@ -714,6 +891,7 @@ def fetch_gem(company_display_name: str, slug: str) -> list[dict]:
             detail = _fetch_gem_detail(slug, ext_id)
             description = detail["description"]
             posted_at = detail["posted_at"]
+            salary = detail["salary"]
 
         jobs.append({
             "company": company_display_name,
@@ -722,6 +900,7 @@ def fetch_gem(company_display_name: str, slug: str) -> list[dict]:
             "url": f"https://jobs.gem.com/{slug}/{ext_id}",
             "posted_at": posted_at,
             "description": description,
+            "salary": salary,
         })
     return jobs
 
