@@ -35,6 +35,11 @@ Only jobs that passed the deterministic filter (`passed_filters = 1`). Each row 
   set inline in the table or from the detail panel. Deliberately separate from the AI's
   suggestion, since one is "should I apply" and the other is "what actually happened".
 - Notes — free text, editable from the detail panel.
+- Salary — best-effort, from whatever `ats_clients.py` could extract for that posting
+  (a real structured field on some ATSes, a scan of the JD text on others); blank when
+  nothing usable was found, which is most postings. See the root README's "Notes on
+  scope" for how reliable this is per ATS.
+- Posted — relative time ("Today", "3 days ago", "2 months ago", ...), not a raw date.
 
 Filter by either status, filter by location, search by company/title, sort any column,
 click a row to open the full JD plus the AI's reasoning (gaps / strengths / risk

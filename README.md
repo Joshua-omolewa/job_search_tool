@@ -36,7 +36,10 @@ is sent to a third party beyond fetching the postings themselves.
 5. **Review** (`web/`) — a local Next.js app reading/writing the same
    SQLite database directly, for browsing results and tracking your own
    `applied / interview / rejected / skipped / silence` status and notes.
-   Filter by AI status, your status, location, or free-text search.
+   Filter by AI status, your status, location, or free-text search; each
+   row also shows a best-effort salary (when the ATS discloses one) and
+   how long ago it was posted. See [`web/README.md`](web/README.md) for
+   what each column means.
 
 ## Setup
 
@@ -117,6 +120,15 @@ make evaluate                         # interactive prompts instead of flags
 Results are stored in SQLite (so re-running never re-pays for a job
 already scored) and written to `data/scored_candidates.csv`, sorted
 best-match-first.
+
+Evaluations run 5 at a time by default (each is an independent Claude
+call, so this is mostly free speedup — ~4-5x faster on a real run). Tune
+with `AI_EVALUATE_WORKERS` if your Anthropic usage tier comfortably
+supports more, or want to dial it back:
+
+```bash
+AI_EVALUATE_WORKERS=10 python -m app.ai_evaluate
+```
 
 ### 3. Review results
 
@@ -210,6 +222,18 @@ None of them call live external APIs.
 - Workday's fetcher parallelizes both list-page pagination and per-job
   detail requests, since a large board (thousands of postings) made of
   sequential one-at-a-time requests was slow enough to matter in practice.
+- Salary is extracted per-posting, not guaranteed per company: a real
+  structured field when the ATS has one (Lever, SmartRecruiters,
+  Teamtailor, and Greenhouse's own pay-transparency HTML block, all
+  confirmed live with real data), falling back to a keyword-anchored scan
+  of the JD text everywhere else (the only path for Ashby/Workday, which
+  have no structured field at all) — see the `salary` section of
+  `app/ats_clients.py`'s module docstring for the full breakdown per ATS,
+  and its sanity-check guards against real data-entry errors (an unfilled
+  template placeholder, a mistyped range) caught live in source postings.
+- AI evaluation runs several jobs concurrently (`AI_EVALUATE_WORKERS`,
+  default 5) rather than one Claude call at a time — ~4-5x faster on a
+  real run, see the AI evaluation section above.
 - If a particular company's fetch fails, `main.py` logs a warning and
   continues with the rest rather than crashing the whole run.
 

@@ -14,15 +14,34 @@ account; if absent, `description` is just "" and the stack check is
 skipped for that job (title/location filters still apply).
 
 `salary` (added 2026-09-26) is a best-effort "X–Y CUR/period" string —
-None where the ATS discloses nothing structured, which is most of them.
-Confirmed live with real, populated data: Lever (`salaryRange`,
-list-level, no gating), SmartRecruiters (`compensation`, detail-level, so
-only for gated/matched postings), Teamtailor (`baseSalary`, list-level).
-Confirmed the field EXISTS but never saw it populated on a real posting
-(best-effort parsing, could be wrong if the real shape differs): BambooHR
-(`compensation`), Rippling (`payRangeDetails`), Gem (`compensationHtml`).
-No structured field found at all, always None: Greenhouse, Ashby,
-Workable, Workday.
+None where nothing usable is found. Two extraction paths, in priority
+order per ATS:
+  1. A genuine structured field, when the ATS has one — confirmed live
+     with real, populated data: Lever (`salaryRange`, list-level, no
+     gating), SmartRecruiters (`compensation`, detail-level, gated),
+     Teamtailor (`baseSalary`, list-level), Greenhouse (`pay-range` HTML
+     block — Greenhouse's own pay-transparency module, not company text;
+     see _extract_greenhouse_pay_range). Adzuna/Remotive (aggregator_clients.py)
+     have their own numeric/plain-text fields, same idea.
+  2. _extract_salary_from_text: a keyword-anchored regex over the JD
+     description prose, used as a fallback everywhere — the primary path
+     for Ashby and Workday (no structured field exists at all there;
+     confirmed real disclosed ranges on Docker, Cerebras, NVIDIA), and a
+     fallback for every other ATS when step 1 comes up empty for that
+     specific posting (common — pay disclosure is per-company, not
+     per-ATS). Validated live across many companies/ATSes; it's inherently
+     a heuristic over free text, not a real field, so treat it with
+     correspondingly less confidence than a structured hit.
+
+_extract_greenhouse_pay_range guards against real DATA-ENTRY ERRORS caught
+live in the source content itself, not this code: an unfilled "$1 — $2"
+template placeholder (Anthropic) and an evidently mistyped "$152,405 —
+$179,300,152" range (Coinbase, ~1,176x spread) both get rejected as
+implausible rather than shown. Its period (hour vs. year) is also decided
+by MAGNITUDE, not the label text next to the range — the label is
+sometimes a zone/location descriptor, not a period at all (Robinhood), or
+a stale copy-paste (Samsara: "Annual Base Salary" labeling an actual
+$35–$58/hr co-op rate) — both caught live before this fix.
 
 NOTE ON THIS SANDBOX: outbound HTTP to arbitrary domains (e.g.
 boards-api.greenhouse.io) is blocked by this cloud environment's network
@@ -100,6 +119,7 @@ engineered from an internal API (like Workday's CXS), it could change
 without notice — same caveat, same verification approach if a
 newly-added Gem company comes back empty.
 """
+import html
 import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
@@ -192,6 +212,83 @@ def _generic_compensation_to_salary(value) -> str | None:
     return None
 
 
+_GREENHOUSE_PAY_RANGE_RE = re.compile(
+    r'<div class="title">[^<]*</div>\s*<div class="pay-range">\s*<span>\$?([\d,]+)</span>.*?<span>\$?([\d,]+)\s*([A-Za-z]*)</span>',
+    re.DOTALL,
+)
+
+
+def _extract_greenhouse_pay_range(content: str) -> str | None:
+    """Greenhouse's own pay-transparency compensation module renders into
+    the job's `content` HTML as a `<div class="title">LABEL</div><div
+    class="pay-range"><span>MIN</span>...<span>MAX CUR</span></div>` block,
+    double HTML-entity-encoded in the API response (`&lt;div&gt;...`) —
+    confirmed live and IDENTICALLY structured across many unrelated
+    companies (Coinbase, Robinhood, Pinterest, Databricks, Airbnb, Samsara,
+    Anthropic all matched on real postings), so this is Greenhouse's own
+    template, not company-specific text — much more reliable than
+    _extract_salary_from_text below. A job open in multiple pay zones lists
+    one block per zone; this takes the first. Not every Greenhouse company
+    uses this module (Stripe's postings had none in samples checked).
+
+    Period (hour vs. year) is inferred from MAGNITUDE, not the LABEL text
+    — caught two real cases live where the label can't be trusted: (1) the
+    label is sometimes just a zone/location descriptor (Robinhood: "Zone 1
+    (Menlo Park, CA; New York, NY; ...)"), not a period indicator at all;
+    (2) it can be a stale copy-paste (Samsara's co-op posting says "Annual
+    Base Salary" but lists $35–$58, an hourly rate). No real annual salary
+    is under ~$1,000 and essentially no hourly rate reaches four digits, so
+    magnitude alone is the more reliable signal.
+
+    Also guards against real data-entry errors seen live IN THE SOURCE
+    CONTENT, not this parser: Anthropic had an unfilled "$1 — $2" template
+    placeholder; Coinbase had "$152,405 — $179,300,152" (evidently a typo/
+    duplication on their end). Both get treated as unparseable — an
+    implausible number is worse to show than none at all."""
+    if not content or "pay-range" not in content:
+        return None
+    decoded = html.unescape(html.unescape(content))  # double-encoded, needs two passes
+    m = _GREENHOUSE_PAY_RANGE_RE.search(decoded)
+    if not m:
+        return None
+    lo_num, hi_num = int(m.group(1).replace(",", "")), int(m.group(2).replace(",", ""))
+    currency = m.group(3)
+    mn, mx = min(lo_num, hi_num), max(lo_num, hi_num)
+    if mx < 10 or (mn > 0 and mx / mn > 20):
+        return None
+    period = "hour" if mx < 1000 else "year"
+    return _format_money_range(lo_num, hi_num, currency or None, period)
+
+
+_SALARY_KEYWORD_RE = re.compile(r"salary|compensation|base pay|pay range|\bOTE\b|annual pay|hourly rate", re.IGNORECASE)
+_SALARY_NUMBER = r"[\d]{2,3}(?:,\d{3})+(?:\.\d+)?"
+_SALARY_RANGE_RE = re.compile(
+    rf"(?:\$\s?({_SALARY_NUMBER})\s*[kK]?\s*(?:-|–|—|to)\s*\$?\s?({_SALARY_NUMBER})\s*[kK]?)"
+    rf"|(?:({_SALARY_NUMBER})\s*(?:USD|CAD|EUR|GBP)\s*(?:-|–|—|to)\s*({_SALARY_NUMBER})\s*(?:USD|CAD|EUR|GBP))"
+)
+
+
+def _extract_salary_from_text(description: str) -> str | None:
+    """Best-effort salary-range extraction from free-text JD prose, for
+    ATSes with no structured compensation field at all (Ashby, Workday) or
+    where this specific posting's structured field came back empty
+    (everywhere else, as a fallback). Only accepts a dollar-range match
+    within ~150 characters AFTER a salary-indicating keyword, to avoid
+    grabbing an unrelated number range (funding raised, headcount, a
+    version number) — validated live against real postings on
+    Greenhouse/Ashby/Workday/Workable/Gem with no observed false positive,
+    but unlike the structured extractions in this module, this is
+    inherently a heuristic over free text, not a real field."""
+    if not description:
+        return None
+    plain = filters.strip_html(description)
+    for m in _SALARY_RANGE_RE.finditer(plain):
+        window = plain[max(0, m.start() - 150):m.start()]
+        if _SALARY_KEYWORD_RE.search(window):
+            return " ".join(m.group(0).split())
+    return None
+
+
 def fetch_greenhouse(company_display_name: str, slug: str) -> list[dict]:
     url = f"https://boards-api.greenhouse.io/v1/boards/{slug}/jobs"
     resp = httpx.get(
@@ -201,19 +298,22 @@ def fetch_greenhouse(company_display_name: str, slug: str) -> list[dict]:
     data = resp.json()
     jobs = []
     for j in data.get("jobs", []):
+        content = j.get("content", "")  # HTML
+        # No dedicated salary field in Greenhouse's API itself (checked
+        # several companies' `metadata` custom fields, found no consistent
+        # name across accounts) — but when a company enables Greenhouse's
+        # own pay-transparency module, it's a reliable structured block
+        # inside `content` (see _extract_greenhouse_pay_range); when that's
+        # not present either, fall back to scanning the JD prose.
+        salary = _extract_greenhouse_pay_range(content) or _extract_salary_from_text(content)
         jobs.append({
             "company": company_display_name,
             "title": j.get("title", ""),
             "location": (j.get("location") or {}).get("name", ""),
             "url": j.get("absolute_url", ""),
             "posted_at": j.get("first_published") or j.get("updated_at"),
-            "description": j.get("content", ""),  # HTML
-            # No structured salary field in Greenhouse's public API — spot-
-            # checked several companies' `metadata` custom fields and JD
-            # content for a salary/compensation entry, found none with a
-            # consistent name across accounts. When disclosed at all, it's
-            # free text buried in the JD body, not worth regex-guessing.
-            "salary": None,
+            "description": content,
+            "salary": salary,
         })
     return jobs
 
@@ -227,17 +327,21 @@ def fetch_ashby(company_display_name: str, slug: str) -> list[dict]:
     jobs = []
     for j in data.get("jobs", []):
         loc = j.get("location") or j.get("locationName") or ""
+        description = j.get("descriptionPlain") or j.get("descriptionHtml") or ""
         jobs.append({
             "company": company_display_name,
             "title": j.get("title", ""),
             "location": loc,
             "url": j.get("jobUrl") or j.get("applyUrl", ""),
             "posted_at": j.get("publishedAt"),
-            "description": j.get("descriptionPlain") or j.get("descriptionHtml") or "",
+            "description": description,
             # No compensation field anywhere in Ashby's public posting API
             # (confirmed live across several companies) — not even a null
-            # key, so there's nothing to extract.
-            "salary": None,
+            # key. Some companies do disclose it in the JD prose instead
+            # (Docker: ~half of postings; Cerebras: some; OpenAI/Snowflake:
+            # none observed) — worth the scan since there's no dedicated
+            # field to prefer over it.
+            "salary": _extract_salary_from_text(description),
         })
     return jobs
 
@@ -254,18 +358,20 @@ def fetch_workable(company_display_name: str, slug: str) -> list[dict]:
         loc_str = ", ".join(filter(None, [loc.get("city"), loc.get("region"), loc.get("country")]))
         if loc.get("workplace") == "remote":
             loc_str = f"Remote ({loc_str})" if loc_str else "Remote"
+        # Workable's widget API doesn't reliably include a description
+        # field across all accounts — treat missing as unknown, not
+        # as "no dealbreaker language", filters.py handles empty safely.
+        description = j.get("description", "")
         jobs.append({
             "company": company_display_name,
             "title": j.get("title", ""),
             "location": loc_str,
             "url": j.get("url") or j.get("shortlink", ""),
             "posted_at": j.get("published_on") or j.get("created_at"),
-            # Workable's widget API doesn't reliably include a description
-            # field across all accounts — treat missing as unknown, not
-            # as "no dealbreaker language", filters.py handles empty safely.
-            "description": j.get("description", ""),
-            # No salary field in Workable's widget API (confirmed live).
-            "salary": None,
+            "description": description,
+            # No dedicated salary field in Workable's widget API (confirmed
+            # live); some accounts disclose it in the description prose.
+            "salary": _extract_salary_from_text(description),
         })
     return jobs
 
@@ -289,17 +395,18 @@ def fetch_lever(company_display_name: str, slug: str) -> list[dict]:
         # "currency": "USD", "interval": "per-year-salary"}); empty/absent
         # otherwise, same as everything else here.
         salary_range = j.get("salaryRange") or {}
+        description = j.get("descriptionPlain") or j.get("description", "")
         salary = _format_money_range(
             salary_range.get("min"), salary_range.get("max"),
             salary_range.get("currency"), _lever_interval_to_period(salary_range.get("interval")),
-        )
+        ) or _extract_salary_from_text(description)
         jobs.append({
             "company": company_display_name,
             "title": j.get("text", ""),
             "location": loc,
             "url": j.get("hostedUrl", ""),
             "posted_at": _epoch_millis_to_iso(j.get("createdAt")),
-            "description": j.get("descriptionPlain") or j.get("description", ""),
+            "description": description,
             "salary": salary,
         })
     return jobs
@@ -330,12 +437,13 @@ def _fetch_smartrecruiters_detail(slug: str, posting_id: str) -> dict:
             (sections.get(key) or {}).get("text", "")
             for key in ("jobDescription", "qualifications", "additionalInformation")
         ]
+        description = "\n\n".join(p for p in parts if p)
         comp = data.get("compensation") or {}
         salary = _format_money_range(
             comp.get("min"), comp.get("max"), comp.get("currency"),
             _SMARTRECRUITERS_PERIOD_LABELS.get(comp.get("period"), (comp.get("period") or "").lower() or None),
-        )
-        return {"description": "\n\n".join(p for p in parts if p), "salary": salary}
+        ) or _extract_salary_from_text(description)
+        return {"description": description, "salary": salary}
     except Exception:
         return {"description": "", "salary": None}
 
@@ -414,12 +522,18 @@ def _fetch_workday_detail(base_url: str, external_path: str) -> dict:
     ("Posted 3 Days Ago") and no description at all — both live on the
     per-job detail endpoint, one extra request per job. Best-effort: any
     failure (bad tenant config, timeout) just means no description/date,
-    not a crashed run, same as _fetch_smartrecruiters_description.
+    not a crashed run, same as _fetch_smartrecruiters_detail.
 
     Also resolves the real location(s): a multi-location posting's list-page
     `locationsText` is just "5 Locations", but the detail response has the
     primary `location` plus an `additionalLocations` list with the actual
-    place names — needed for filters.location_is_allowed to mean anything."""
+    place names — needed for filters.location_is_allowed to mean anything.
+
+    No structured compensation field anywhere in the CXS API (checked
+    jobPostingInfo's full key list across 4 different tenants), but when
+    disclosed at all it's free text inside `jobDescription` (confirmed
+    live on NVIDIA — "The base salary range is 224,000 USD - 356,500 USD
+    for Level 3...") — worth the scan."""
     try:
         resp = httpx.get(
             f"{base_url}{external_path}",
@@ -430,13 +544,15 @@ def _fetch_workday_detail(base_url: str, external_path: str) -> dict:
         info = resp.json().get("jobPostingInfo") or {}
         locations = [info["location"]] if info.get("location") else []
         locations += info.get("additionalLocations") or []
+        description = info.get("jobDescription", "")
         return {
-            "description": info.get("jobDescription", ""),
+            "description": description,
             "posted_at": info.get("startDate"),
             "location": ", ".join(locations) or None,
+            "salary": _extract_salary_from_text(description),
         }
     except Exception:
-        return {"description": "", "posted_at": None, "location": None}
+        return {"description": "", "posted_at": None, "location": None, "salary": None}
 
 
 _WORKDAY_DETAIL_WORKERS = 8  # bounded so a big board doesn't hammer the tenant's API
@@ -540,10 +656,6 @@ def fetch_workday(company_display_name: str, slug: str) -> list[dict]:
             "url": f"https://{host}.myworkdayjobs.com/{site}{external_path}",
             "posted_at": None,
             "description": "",
-            # No structured compensation field anywhere in the CXS API
-            # (checked jobPostingInfo's full key list across 4 different
-            # tenants) — when disclosed, it's free text inside
-            # jobDescription, not worth regex-guessing.
             "salary": None,
         })
 
@@ -572,6 +684,7 @@ def fetch_workday(company_display_name: str, slug: str) -> list[dict]:
                 detail = future.result()
                 jobs[idx]["description"] = detail["description"]
                 jobs[idx]["posted_at"] = detail["posted_at"]
+                jobs[idx]["salary"] = detail["salary"]
                 if detail["location"]:
                     jobs[idx]["location"] = detail["location"]
 
@@ -596,11 +709,9 @@ def _fetch_bamboohr_detail(base_url: str, job_id: str) -> dict:
         )
         resp.raise_for_status()
         info = (resp.json().get("result") or {}).get("jobOpening") or {}
-        return {
-            "description": info.get("description", ""),
-            "posted_at": info.get("datePosted"),
-            "salary": _generic_compensation_to_salary(info.get("compensation")),
-        }
+        description = info.get("description", "")
+        salary = _generic_compensation_to_salary(info.get("compensation")) or _extract_salary_from_text(description)
+        return {"description": description, "posted_at": info.get("datePosted"), "salary": salary}
     except Exception:
         return {"description": "", "posted_at": None, "salary": None}
 
@@ -676,12 +787,9 @@ def _fetch_rippling_detail(slug: str, job_uuid: str) -> dict:
         desc = info.get("description") or {}
         # "company" and "role" are separate HTML fragments (about-the-company
         # blurb + the actual role description) — join them into one JD.
-        html = "\n\n".join(v for v in (desc.get("company"), desc.get("role")) if v)
-        return {
-            "description": html,
-            "posted_at": info.get("createdOn"),
-            "salary": _generic_compensation_to_salary(info.get("payRangeDetails")),
-        }
+        description = "\n\n".join(v for v in (desc.get("company"), desc.get("role")) if v)
+        salary = _generic_compensation_to_salary(info.get("payRangeDetails")) or _extract_salary_from_text(description)
+        return {"description": description, "posted_at": info.get("createdOn"), "salary": salary}
     except Exception:
         return {"description": "", "posted_at": None, "salary": None}
 
@@ -792,14 +900,15 @@ def fetch_teamtailor(company_display_name: str, slug: str) -> list[dict]:
             loc_parts.append(
                 ", ".join(filter(None, [addr.get("addressLocality"), addr.get("addressRegion"), addr.get("addressCountry")]))
             )
+        content_html = it.get("content_html", "")
         jobs.append({
             "company": company_display_name,
             "title": it.get("title", ""),
             "location": "; ".join(filter(None, loc_parts)),
             "url": it.get("url", ""),
             "posted_at": it.get("date_published"),
-            "description": it.get("content_html", ""),
-            "salary": _teamtailor_salary(jobposting),
+            "description": content_html,
+            "salary": _teamtailor_salary(jobposting) or _extract_salary_from_text(content_html),
         })
     return jobs
 
@@ -851,10 +960,12 @@ def _fetch_gem_detail(slug: str, ext_id: str) -> dict:
         data = _gem_graphql("ExternalJobPosting", _GEM_DETAIL_QUERY, {"boardId": slug, "extId": ext_id})
         info = data.get("oatsExternalJobPosting") or {}
         comp_html = info.get("compensationHtml")
+        description = info.get("descriptionHtml", "")
+        salary = (filters.strip_html(comp_html).strip() if comp_html else None) or _extract_salary_from_text(description)
         return {
-            "description": info.get("descriptionHtml", ""),
+            "description": description,
             "posted_at": _epoch_seconds_to_iso(info.get("firstPublishedTsSec")),
-            "salary": filters.strip_html(comp_html).strip() if comp_html else None,
+            "salary": salary,
         }
     except Exception:
         return {"description": "", "posted_at": None, "salary": None}

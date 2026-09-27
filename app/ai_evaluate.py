@@ -26,6 +26,7 @@ import argparse
 import csv
 import os
 import sys
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 import yaml
@@ -38,6 +39,17 @@ load_dotenv()
 
 MODEL = os.environ.get("ANTHROPIC_MODEL", "claude-haiku-4-5")
 OUTPUT_CSV = Path("data/scored_candidates.csv")
+
+# Each evaluate_one() call is a single independent network round-trip (send
+# job+profile, wait for Claude to generate the tool call) — almost entirely
+# I/O wait, so running several concurrently is a straightforward win, same
+# idea as ats_clients.py's Workday detail-fetch pool. Kept modest (rather
+# than e.g. 20+) since unlike a free ATS API, a burst of concurrent
+# requests here both costs money AND is the one place actually likely to
+# hit Anthropic's per-minute rate limit — override via env var if your
+# usage tier comfortably supports more. The SDK's own default max_retries
+# (2, exponential backoff) already covers an occasional 429/5xx under load.
+AI_EVALUATE_WORKERS = int(os.environ.get("AI_EVALUATE_WORKERS", "5"))
 
 REQUIRED_EVAL_FIELDS = ["match_score", "recommendation", "genuine_gaps", "transferable_strengths", "risk_factors"]
 
@@ -235,16 +247,26 @@ if __name__ == "__main__":
             sys.exit("ANTHROPIC_API_KEY env var not set.")
         client = anthropic.Anthropic(api_key=api_key)
 
-        for i, job in enumerate(queue, 1):
-            try:
-                evaluation = evaluate_one(client, profile, job)
-            except Exception as e:
-                print(f"[WARN] {job['company']} — {job['title']}: evaluation failed — {e}", file=sys.stderr)
-                continue
-            dedup.save_evaluation(conn, job["url"], evaluation, MODEL)
-            conn.commit()  # commit per-job so a crash mid-run doesn't lose completed evaluations
-            print(f"[{i}/{len(queue)}] {evaluation['match_score']:3d} {evaluation['recommendation']:9s} | "
-                  f"{job['company']:20s} | {job['title']}")
+        # Workers only ever call client.messages.create() (a plain network
+        # round-trip on the SDK's own httpx.Client, which is safe for
+        # concurrent use) — the sqlite connection is never touched off the
+        # main thread, so results are written up here as each future
+        # completes, same commit-per-job durability as the old sequential
+        # loop had. Completion order isn't queue order once this runs
+        # concurrently; the progress counter reflects that.
+        with ThreadPoolExecutor(max_workers=AI_EVALUATE_WORKERS) as pool:
+            future_to_job = {pool.submit(evaluate_one, client, profile, job): job for job in queue}
+            for i, future in enumerate(as_completed(future_to_job), 1):
+                job = future_to_job[future]
+                try:
+                    evaluation = future.result()
+                except Exception as e:
+                    print(f"[WARN] {job['company']} — {job['title']}: evaluation failed — {e}", file=sys.stderr)
+                    continue
+                dedup.save_evaluation(conn, job["url"], evaluation, MODEL)
+                conn.commit()  # commit per-job so a crash mid-run doesn't lose completed evaluations
+                print(f"[{i}/{len(queue)}] {evaluation['match_score']:3d} {evaluation['recommendation']:9s} | "
+                      f"{job['company']:20s} | {job['title']}")
 
         total = write_csv(conn)
         print(f"\nWrote {total} scored candidates to {OUTPUT_CSV} (sorted by match_score desc).")
