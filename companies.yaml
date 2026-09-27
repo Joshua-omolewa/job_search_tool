@@ -135,9 +135,6 @@ companies:
   - name: Konrad Group
     ats: smartrecruiters
     slug: KonradGroup
-  - name: Sortable
-    ats: ashby
-    slug: sortable
   - name: PointClickCare
     ats: lever
     slug: pointclickcare
