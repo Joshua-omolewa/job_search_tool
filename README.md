@@ -38,10 +38,11 @@ is sent to a third party beyond fetching the postings themselves.
 5. **Review** (`web/`) — a local Next.js app reading/writing the same
    SQLite database directly, for browsing results and tracking your own
    `applied / interview / rejected / skipped / silence` status and notes.
-   Filter by AI status, your status, location, or free-text search; each
-   row also shows a best-effort salary (when the ATS discloses one) and
-   how long ago it was posted. See [`web/README.md`](web/README.md) for
-   what each column means.
+   Filter by AI status, your status, location, source (which fetcher found
+   it — Greenhouse, LinkedIn, Indeed, etc.), or free-text search; each row
+   also shows a best-effort salary (when the ATS discloses one) and how
+   long ago it was posted. See [`web/README.md`](web/README.md) for what
+   each column means.
 
 ## Setup
 

@@ -40,10 +40,12 @@ Only jobs that passed the deterministic filter (`passed_filters = 1`). Each row 
   nothing usable was found, which is most postings. See the root README's "Notes on
   scope" for how reliable this is per ATS.
 - Posted — relative time ("Today", "3 days ago", "2 months ago", ...), not a raw date.
+- Source — which fetcher found it (`greenhouse`, `ashby`, `linkedin`, `indeed`, ...),
+  straight from `job_details.source`.
 
-Filter by either status, filter by location, search by company/title, sort any column,
-click a row to open the full JD plus the AI's reasoning (gaps / strengths / risk
-factors) and edit status+notes.
+Filter by either status, by location, by source, or search by company/title, sort any
+column, click a row to open the full JD plus the AI's reasoning (gaps / strengths /
+risk factors) and edit status+notes.
 
 ## Production build
 
