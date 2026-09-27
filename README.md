@@ -18,9 +18,15 @@ is sent to a third party beyond fetching the postings themselves.
 ## How it works
 
 1. **Fetch** (`app/main.py`) — pulls open roles from:
-   - `companies.yaml` — known companies queried directly via their ATS
+   - `companies.yaml` — known companies queried directly via their ATS.
+     22 ATS types supported, from mainstream ones with a clean public API
      (Greenhouse, Ashby, Workable, Lever, SmartRecruiters, Workday,
-     BambooHR, Rippling, Teamtailor, Gem) — precise, low noise.
+     BambooHR, Rippling, Teamtailor, Gem) to enterprise platforms
+     (Oracle Cloud Recruiting, SAP SuccessFactors, iCIMS, Eightfold,
+     Cornerstone OnDemand), HTML-only portals with no API at all (Avature,
+     HRDepartment), and a handful of large companies' own custom career
+     sites reverse-engineered individually (Google, Apple, Meta, Shopify,
+     gr8people) — precise, low noise either way.
    - `aggregators.yaml` — broad keyword+location search across many
      employers at once (Adzuna, Remotive, RemoteOK, Jobicy,
      WeWorkRemotely, LinkedIn, Indeed) — wider reach, more noise.
@@ -210,9 +216,11 @@ Thin wrappers over the commands above — run from the repo root:
 
 - **`companies.yaml`** — the company registry (name, ATS type, slug). Add
   a company here once you've identified its ATS — see the file's header
-  comment for each supported ATS's slug format (Greenhouse, Ashby,
+  comment for all 22 supported ATS types' slug formats (Greenhouse, Ashby,
   Workable, Lever, SmartRecruiters, Workday, BambooHR, Rippling,
-  Teamtailor, Gem).
+  Teamtailor, Gem, Oracle Cloud Recruiting, SAP SuccessFactors, iCIMS,
+  Eightfold, Cornerstone OnDemand, Avature, HRDepartment, gr8people, and
+  Google/Apple/Meta/Shopify's own custom career sites).
 - **`aggregators.yaml`** — aggregator search config (keywords, location,
   pagination limits) across Adzuna, Remotive, RemoteOK, Jobicy,
   WeWorkRemotely, LinkedIn, and Indeed. Only Adzuna needs auth (a free
@@ -286,6 +294,25 @@ None of them call live external APIs.
   back with 0 jobs, verify the slug against a live network request from
   that company's careers page before assuming the code is wrong — see the
   CONFIDENCE NOTEs in `app/ats_clients.py` for how each was reverse-engineered.
+- 12 more ATS types were added 2026-09-27 (Oracle Cloud Recruiting, SAP
+  SuccessFactors, iCIMS, Eightfold, Cornerstone OnDemand, Avature,
+  HRDepartment, gr8people, and Google/Apple/Meta/Shopify's own custom
+  career sites) to cover large companies previously checked and
+  deliberately left out of `companies.yaml` for having no obvious public
+  ATS API — each turned out to be reachable unauthenticated after all,
+  just not through a clean documented REST endpoint. Where no real API
+  exists at all (Avature, HRDepartment), the fetcher scrapes plain HTML
+  instead, same approach already used for LinkedIn in
+  `app/aggregator_clients.py`. Every one of these is either an
+  undocumented internal API or an HTML scrape, so treat them with the same
+  "verify a new company before trusting it" caution as Workday/Gem above —
+  see the CONFIDENCE NOTES in `app/ats_clients.py`'s module docstring and
+  `companies.yaml`'s header comment for the full detail per type. IBM was
+  checked and could not be added (hard AWS-WAF-blocked); a gr8people
+  company can be added but its real customer's tenant (Electronic Arts, in
+  the one case checked) may block requests from your own network — see the
+  "Checked and deliberately NOT added" note above the Google/Apple/
+  Meta/Shopify entries in `companies.yaml`.
 - Workday's fetcher parallelizes both list-page pagination and per-job
   detail requests, since a large board (thousands of postings) made of
   sequential one-at-a-time requests was slow enough to matter in practice.

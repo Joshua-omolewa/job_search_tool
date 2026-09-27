@@ -43,12 +43,12 @@ sometimes a zone/location descriptor, not a period at all (Robinhood), or
 a stale copy-paste (Samsara: "Annual Base Salary" labeling an actual
 $35–$58/hr co-op rate) — both caught live before this fix.
 
-NOTE ON THIS SANDBOX: outbound HTTP to arbitrary domains (e.g.
-boards-api.greenhouse.io) is blocked by this cloud environment's network
-allowlist — that's a property of THIS dev sandbox, not of the ATS APIs
-themselves (verified working via WebFetch during development). Run this
-module on a machine/server with normal internet access — your laptop, a
-cron box, a small VM — and it will work as-is.
+NOTE ON SANDBOXES: an earlier dev environment used for this project had
+its outbound HTTP blocked by a network allowlist, which is why some
+CONFIDENCE NOTEs below mention verifying via WebFetch instead of a direct
+request. That was a property of that one sandbox, not of the ATS APIs —
+outbound HTTP works fine in the environment these fetchers are actually
+maintained in now (and will on a normal laptop/server/cron box/VM).
 
 CONFIDENCE NOTE on fetch_smartrecruiters specifically (2026-08-12): unlike
 Greenhouse/Ashby/Workable/Lever, which were each confirmed against a real
@@ -118,9 +118,39 @@ public docs describe it, then confirmed live against 5 real companies
 engineered from an internal API (like Workday's CXS), it could change
 without notice — same caveat, same verification approach if a
 newly-added Gem company comes back empty.
+
+CONFIDENCE NOTES on the 12 clients added 2026-09-27 (fetch_oraclecloud,
+fetch_successfactors, fetch_icims, fetch_eightfold, fetch_cornerstone,
+fetch_avature, fetch_hrdepartment, fetch_gr8people, fetch_google,
+fetch_apple, fetch_shopify, fetch_meta): each was built to cover companies
+this pipeline had previously checked and deliberately NOT added because
+they run an enterprise ATS or fully custom career site with no obvious
+public API — a closer look found each one is actually reachable
+unauthenticated, just not through a clean documented REST endpoint the
+way Greenhouse/Ashby/Lever are. Full detail (exact endpoint, request
+shape, response shape, how it was found, and what was verified live) is
+in each function's own docstring/inline comment, right above it — kept
+there instead of duplicated here since there's a lot of it. The short
+version, and the shared caveat across all 12: every one of these is
+either an undocumented internal API a company's own frontend calls (same
+risk profile as Workday's CXS/Gem's GraphQL API above — could change
+without notice) or, where no API exists at all (avature, hrdepartment),
+plain HTML scraped with a regex (same approach already used for LinkedIn
+in aggregator_clients.py) — more fragile than a typed JSON contract, so
+verify a newly-added company under any of these 12 with
+`python -m app.main --company <slug>` before trusting it, same as every
+other undocumented-API fetcher in this file. One exception:
+fetch_gr8people's query shape is confirmed working against the platform
+vendor's own demo tenant, but NOT against a real customer — the one real
+customer checked (EA) blocks every request from this project's own
+network at the edge (a 403 on a plain HTML fetch, unrelated to the query
+itself) — so treat a newly-added gr8people company as unverified until
+you've confirmed it yourself.
 """
 import html
+import json
 import re
+import xml.etree.ElementTree as ET
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 
@@ -260,10 +290,22 @@ def _extract_greenhouse_pay_range(content: str) -> str | None:
     return _format_money_range(lo_num, hi_num, currency or None, period)
 
 
-_SALARY_KEYWORD_RE = re.compile(r"salary|compensation|base pay|pay range|\bOTE\b|annual pay|hourly rate", re.IGNORECASE)
-_SALARY_NUMBER = r"[\d]{2,3}(?:,\d{3})+(?:\.\d+)?"
+_SALARY_KEYWORD_RE = re.compile(
+    r"salary|compensation|base pay|pay range|\bOTE\b|annual pay|hourly rate|individual pay",
+    re.IGNORECASE,
+)
+# Comma-grouped ("182,000") or a bare 4-6 digit number ("182000") — the
+# latter added after finding Google's own salary text uses no thousands
+# separator at all ("Canada: $182000 - $186000 (CAD)", confirmed live
+# 2026-09-27) and was silently missed. Still gated by the keyword-proximity
+# check below, so this doesn't meaningfully raise false-positive risk.
+_SALARY_NUMBER = r"(?:[\d]{2,3}(?:,\d{3})+(?:\.\d+)?|\d{4,6})"
 _SALARY_RANGE_RE = re.compile(
-    rf"(?:\$\s?({_SALARY_NUMBER})\s*[kK]?\s*(?:-|–|—|to)\s*\$?\s?({_SALARY_NUMBER})\s*[kK]?)"
+    # \s* (not \s?) around the $ signs: strip_html can leave more than one
+    # space where a source page split the amount across two HTML elements
+    # (e.g. Avature: "<font>...$</font><span>180000</span>" -> "$  180000",
+    # confirmed live) — a single optional space silently missed that.
+    rf"(?:\$\s*({_SALARY_NUMBER})\s*[kK]?\s*(?:-|–|—|to)\s*\$?\s*({_SALARY_NUMBER})\s*[kK]?)"
     rf"|(?:({_SALARY_NUMBER})\s*(?:USD|CAD|EUR|GBP)\s*(?:-|–|—|to)\s*({_SALARY_NUMBER})\s*(?:USD|CAD|EUR|GBP))"
 )
 
@@ -1016,6 +1058,1270 @@ def fetch_gem(company_display_name: str, slug: str) -> list[dict]:
     return jobs
 
 
+def _fetch_oraclecloud_detail(host: str, site: str, job_id: str) -> dict:
+    """List endpoint has no description at all — one extra request per job,
+    same shape as _fetch_workday_detail. No structured salary field exists
+    anywhere in either endpoint (checked the full key list on 3 different
+    tenants) — only the free-text fallback applies."""
+    try:
+        resp = httpx.get(
+            f"https://{host}/hcmRestApi/resources/latest/recruitingCEJobRequisitionDetails",
+            params={"finder": f'ById;Id="{job_id}",siteNumber={site}'},
+            headers={"User-Agent": USER_AGENT, "Accept": "application/json"},
+            timeout=TIMEOUT,
+        )
+        resp.raise_for_status()
+        items = resp.json().get("items") or [{}]
+        info = items[0] if items else {}
+        description = info.get("ExternalDescriptionStr", "") or ""
+        responsibilities = info.get("ExternalResponsibilitiesStr", "") or ""
+        qualifications = info.get("ExternalQualificationsStr", "") or ""
+        full_description = "\n".join(p for p in (description, responsibilities, qualifications) if p)
+        return {
+            "description": full_description,
+            "posted_at": info.get("ExternalPostedStartDate"),
+            "salary": _extract_salary_from_text(full_description),
+        }
+    except Exception:
+        return {"description": "", "posted_at": None, "salary": None}
+
+
+_ORACLECLOUD_LIST_WORKERS = 8
+_ORACLECLOUD_DETAIL_WORKERS = 8
+
+
+def _fetch_oraclecloud_page(host: str, site: str, offset: int, limit: int) -> list[dict]:
+    resp = httpx.get(
+        f"https://{host}/hcmRestApi/resources/latest/recruitingCEJobRequisitions",
+        params={
+            "onlyData": "true",
+            "expand": "requisitionList.secondaryLocations,flexFieldsFacet.values",
+            "finder": f"findReqs;siteNumber={site},limit={limit},offset={offset},sortBy=POSTING_DATES_DESC",
+        },
+        headers={"User-Agent": USER_AGENT, "Accept": "application/json"},
+        timeout=TIMEOUT,
+    )
+    resp.raise_for_status()
+    items = resp.json().get("items") or [{}]
+    return (items[0] if items else {}).get("requisitionList") or []
+
+
+def fetch_oraclecloud(company_display_name: str, slug: str) -> list[dict]:
+    # Oracle Fusion Cloud Recruiting ("Candidate Experience") sites expose a
+    # public, unauthenticated REST API (hcmRestApi/resources/latest/
+    # recruitingCEJobRequisitions) that the careers page's own frontend
+    # calls — confirmed live 2026-09-27 against Oracle itself, Dell, Texas
+    # Instruments, Emerson, and ON Semiconductor. `slug` is "{host}/{site-id}"
+    # — {host} is whatever hostname the company's real public careers page
+    # redirects to (a raw *.fa.{region}.oraclecloud.com host, or a
+    # customer's own CNAME'd vanity domain — both answer this API directly,
+    # no need to reconstruct the raw hostname), {site-id} is the trailing
+    # path segment of that redirect (e.g. careers.ti.com -> .../en/sites/CX
+    # gives site-id "CX"). See companies.yaml's header comment.
+    host, _, site = slug.partition("/")
+    limit = 200  # server hard-caps the page size here regardless of what's requested
+
+    first_resp = httpx.get(
+        f"https://{host}/hcmRestApi/resources/latest/recruitingCEJobRequisitions",
+        params={
+            "onlyData": "true",
+            "expand": "requisitionList.secondaryLocations,flexFieldsFacet.values",
+            "finder": f"findReqs;siteNumber={site},limit={limit},offset=0,sortBy=POSTING_DATES_DESC",
+        },
+        headers={"User-Agent": USER_AGENT, "Accept": "application/json"},
+        timeout=TIMEOUT,
+    )
+    first_resp.raise_for_status()
+    first_items = first_resp.json().get("items") or [{}]
+    first_item = first_items[0] if first_items else {}
+    total = first_item.get("TotalJobsCount") or 0
+    postings = list(first_item.get("requisitionList") or [])
+
+    if total > len(postings):
+        offsets = range(limit, total, limit)
+        with ThreadPoolExecutor(max_workers=_ORACLECLOUD_LIST_WORKERS) as pool:
+            for page in pool.map(lambda off: _fetch_oraclecloud_page(host, site, off, limit), offsets):
+                postings.extend(page)
+
+    jobs = []
+    pending_detail = []  # (index into `jobs`, job_id)
+    for p in postings:
+        job_id = p.get("Id")
+        title = p.get("Title", "")
+        loc = p.get("PrimaryLocation", "") or ""
+        if not job_id:
+            continue
+        jobs.append({
+            "company": company_display_name,
+            "title": title,
+            "location": loc,
+            "url": f"https://{host}/hcmUI/CandidateExperience/en/sites/{site}/job/{job_id}",
+            "posted_at": p.get("PostedDate"),
+            "description": "",
+            "salary": None,
+        })
+        if filters.title_is_relevant(title) and filters.location_is_allowed(loc):
+            pending_detail.append((len(jobs) - 1, job_id))
+
+    if pending_detail:
+        with ThreadPoolExecutor(max_workers=_ORACLECLOUD_DETAIL_WORKERS) as pool:
+            future_to_index = {
+                pool.submit(_fetch_oraclecloud_detail, host, site, job_id): idx
+                for idx, job_id in pending_detail
+            }
+            for future in as_completed(future_to_index):
+                idx = future_to_index[future]
+                detail = future.result()
+                jobs[idx]["description"] = detail["description"]
+                if detail["posted_at"]:
+                    jobs[idx]["posted_at"] = detail["posted_at"]
+                jobs[idx]["salary"] = detail["salary"]
+
+    return jobs
+
+
+_SUCCESSFACTORS_NS = {"g": "http://base.google.com/ns/1.0"}
+
+
+def fetch_successfactors(company_display_name: str, slug: str) -> list[dict]:
+    # SAP SuccessFactors Career Site Builder sites are classic server-
+    # rendered jQuery pages with no JSON SPA API — but every one of them
+    # exposes a public, unauthenticated "Google for Jobs" XML feed with the
+    # full job list AND full HTML descriptions in ONE request, no
+    # pagination or per-job detail fetch needed (closer to fetch_teamtailor
+    # than fetch_workday). `slug` is just the company's own careers
+    # hostname (e.g. "jobs.bce.ca") — see companies.yaml's header comment.
+    # Confirmed live 2026-09-27 against BCE, Corning, Rogers, and TELUS.
+    # `/sitemap.xml` serves this feed on some tenants but NOT all (TELUS
+    # reserves it for a plain URL sitemap instead) — `/googleforjobs.xml`
+    # is the one path confirmed to work identically across all 4.
+    resp = httpx.get(
+        f"https://{slug}/googleforjobs.xml",
+        headers={"User-Agent": USER_AGENT},
+        timeout=TIMEOUT,
+    )
+    resp.raise_for_status()
+    root = ET.fromstring(resp.content)
+    jobs = []
+    for item in root.iter("item"):
+        title = (item.findtext("title") or "").strip()
+        link = (item.findtext("link") or "").strip()
+        location = (item.findtext("g:location", namespaces=_SUCCESSFACTORS_NS) or "").strip()
+        description_raw = item.findtext("description") or ""
+        # SF double-HTML-escapes the CDATA body, same as Greenhouse's own
+        # pay-range block — needs two unescape passes to get real HTML.
+        description = html.unescape(html.unescape(description_raw))
+        if not link:
+            continue
+        jobs.append({
+            "company": company_display_name,
+            "title": title,
+            "location": location,
+            "url": link,
+            "posted_at": None,  # not present in this feed on any tenant checked
+            "description": description,
+            "salary": _extract_salary_from_text(description),
+        })
+    return jobs
+
+
+def fetch_icims(company_display_name: str, slug: str) -> list[dict]:
+    # iCIMS "Attract"-branded custom career-site front-ends (NOT the classic
+    # {tenant}.icims.com portal, which is WAF/CAPTCHA-blocked to a
+    # non-browser client) expose a public, unauthenticated /api/jobs
+    # endpoint their own SPA calls — confirmed live 2026-09-27 on AMD (1250
+    # jobs) and Keysight (636 jobs). `slug` is the company's own custom
+    # careers domain (e.g. "careers.amd.com"), NOT an icims.com subdomain —
+    # see companies.yaml's header comment. Full HTML description comes back
+    # in the SAME response as the listing, no per-job detail fetch needed.
+    # Page size is hard-fixed at 10 server-side regardless of any
+    # `num`/`size` param tried — pagination is `page=1,2,3...` only.
+    jobs = []
+    page = 1
+    while True:
+        resp = httpx.get(
+            f"https://{slug}/api/jobs",
+            params={"page": page},
+            headers={"User-Agent": USER_AGENT, "Accept": "application/json"},
+            timeout=TIMEOUT,
+        )
+        resp.raise_for_status()
+        page_jobs = resp.json().get("jobs") or []
+        if not page_jobs:
+            break
+        for entry in page_jobs:
+            j = entry.get("data") or {}
+            title = j.get("title", "")
+            location = j.get("location_name") or ""
+            apply_url = j.get("apply_url", "")
+            if not apply_url:
+                continue
+            description = j.get("description", "") or ""
+            salary_min, salary_max = j.get("salary_min_value"), j.get("salary_max_value")
+            salary = (
+                (_format_money_range(salary_min, salary_max, None, None) if (salary_min or salary_max) else None)
+                or _extract_salary_from_text(description)
+            )
+            jobs.append({
+                "company": company_display_name,
+                "title": title,
+                "location": location,
+                "url": apply_url,
+                "posted_at": j.get("posted_date"),
+                "description": description,
+                "salary": salary,
+            })
+        page += 1
+        if page > 500:  # sanity guard against an unbounded loop on a malformed response
+            break
+    return jobs
+
+
+def _fetch_eightfold_detail(host: str, domain: str, job_id) -> dict | None:
+    """Returns the raw detail JSON (title/locations/job_description/etc all
+    live in one shape, list vs. detail just differ in whether
+    job_description is populated) or None on any failure — best-effort,
+    same as every other detail fetch in this module."""
+    try:
+        resp = httpx.get(
+            f"https://{host}/api/apply/v2/jobs/{job_id}",
+            params={"domain": domain},
+            headers={"User-Agent": USER_AGENT, "Accept": "application/json"},
+            timeout=TIMEOUT,
+        )
+        resp.raise_for_status()
+        return resp.json()
+    except Exception:
+        return None
+
+
+_EIGHTFOLD_SITEMAP_JOB_RE = re.compile(r"/careers/job/(\d+)-([a-z0-9-]+)")
+_EIGHTFOLD_LIST_WORKERS = 8
+_EIGHTFOLD_DETAIL_WORKERS = 8
+
+
+def fetch_eightfold(company_display_name: str, slug: str) -> list[dict]:
+    # Eightfold AI-powered career sites expose a public, unauthenticated
+    # search API their own SPA calls (.../api/apply/v2/jobs?domain=...) —
+    # confirmed live 2026-09-27 on Netflix (484 jobs). `slug` is
+    # "{host}/{domain}" — {host} is whatever domain the careers site itself
+    # lives on (may be *.eightfold.ai or the company's own custom domain),
+    # {domain} is the company's plain public domain used as the API's own
+    # company-scoping param (e.g. "netflix.com") — found embedded in the
+    # careers page's own HTML (a `"domain":"..."` field in an inline
+    # pcsx-data script block). See companies.yaml's header comment.
+    #
+    # Some tenants (Lumen, Microsoft) block this search endpoint outright
+    # (403 "Not authorized for PCSX") even though the single-job DETAIL
+    # endpoint on the same host stays open — confirmed live on both. Falls
+    # back to walking /careers/sitemap.xml (lists every job's canonical
+    # URL, id embedded in the slug) and fetching each job's detail directly
+    # when that happens; title is parsed out of the URL slug for gating
+    # (no other pre-detail signal exists on that path) and an ambiguous
+    # parse is fetched anyway rather than silently dropped.
+    host, _, domain = slug.partition("/")
+    jobs = []
+
+    first = httpx.get(
+        f"https://{host}/api/apply/v2/jobs",
+        params={"domain": domain, "start": 0, "num": 10},
+        headers={"User-Agent": USER_AGENT, "Accept": "application/json"},
+        timeout=TIMEOUT,
+    )
+
+    if first.status_code == 200:
+        first_json = first.json()
+        total = first_json.get("count") or 0
+        positions = list(first_json.get("positions") or [])
+
+        if total > len(positions):
+            offsets = range(10, total, 10)
+
+            def _page(start):
+                r = httpx.get(
+                    f"https://{host}/api/apply/v2/jobs",
+                    params={"domain": domain, "start": start, "num": 10},
+                    headers={"User-Agent": USER_AGENT, "Accept": "application/json"},
+                    timeout=TIMEOUT,
+                )
+                r.raise_for_status()
+                return r.json().get("positions") or []
+
+            with ThreadPoolExecutor(max_workers=_EIGHTFOLD_LIST_WORKERS) as pool:
+                for page in pool.map(_page, offsets):
+                    positions.extend(page)
+
+        pending_detail = []  # (index into `jobs`, job_id)
+        for p in positions:
+            job_id = p.get("id")
+            title = p.get("name", "")
+            locations = p.get("locations") or ([p["location"]] if p.get("location") else [])
+            location = ", ".join(locations)
+            url = p.get("canonicalPositionUrl", "")
+            if not job_id or not url:
+                continue
+            jobs.append({
+                "company": company_display_name,
+                "title": title,
+                "location": location,
+                "url": url,
+                "posted_at": _epoch_seconds_to_iso(p.get("t_create")),
+                "description": "",
+                "salary": None,
+            })
+            if filters.title_is_relevant(title) and filters.location_is_allowed(location):
+                pending_detail.append((len(jobs) - 1, job_id))
+
+        if pending_detail:
+            with ThreadPoolExecutor(max_workers=_EIGHTFOLD_DETAIL_WORKERS) as pool:
+                future_to_index = {
+                    pool.submit(_fetch_eightfold_detail, host, domain, job_id): idx
+                    for idx, job_id in pending_detail
+                }
+                for future in as_completed(future_to_index):
+                    idx = future_to_index[future]
+                    info = future.result() or {}
+                    description = info.get("job_description", "") or ""
+                    jobs[idx]["description"] = description
+                    jobs[idx]["salary"] = _extract_salary_from_text(description)
+
+        return jobs
+
+    # Search endpoint blocked (403) — fall back to the sitemap.
+    sitemap = httpx.get(
+        f"https://{host}/careers/sitemap.xml",
+        headers={"User-Agent": USER_AGENT},
+        timeout=TIMEOUT,
+    )
+    sitemap.raise_for_status()
+    job_ids = [(m.group(1), m.group(2).replace("-", " ")) for m in _EIGHTFOLD_SITEMAP_JOB_RE.finditer(sitemap.text)]
+
+    def _fetch_and_gate(job_id, slug_title):
+        if slug_title and not filters.title_is_relevant(slug_title):
+            return None
+        return job_id, slug_title, _fetch_eightfold_detail(host, domain, job_id)
+
+    with ThreadPoolExecutor(max_workers=_EIGHTFOLD_DETAIL_WORKERS) as pool:
+        for result in pool.map(lambda t: _fetch_and_gate(*t), job_ids):
+            if result is None:
+                continue
+            job_id, slug_title, info = result
+            if not info:
+                continue
+            description = info.get("job_description", "") or ""
+            if not description:
+                continue
+            locations = info.get("locations") or ([info["location"]] if info.get("location") else [])
+            location = ", ".join(locations)
+            if location and not filters.location_is_allowed(location):
+                continue
+            jobs.append({
+                "company": company_display_name,
+                "title": info.get("name") or slug_title.title(),
+                "location": location,
+                "url": info.get("canonicalPositionUrl") or f"https://{host}/careers/job/{job_id}?domain={domain}",
+                "posted_at": _epoch_seconds_to_iso(info.get("t_create")),
+                "description": description,
+                "salary": _extract_salary_from_text(description),
+            })
+    return jobs
+
+
+def _fetch_cornerstone_session(tenant: str, career_site_id: str) -> tuple[str, str, dict]:
+    """CSOD needs a short-lived anonymous JWT + session cookies before any
+    API call works — both come from just loading the career site's own
+    home page once. Returns (token, cloud_host, cookies)."""
+    resp = httpx.get(
+        f"https://{tenant}.csod.com/ux/ats/careersite/{career_site_id}/home",
+        params={"c": tenant},
+        headers={"User-Agent": USER_AGENT},
+        timeout=TIMEOUT,
+        follow_redirects=True,
+    )
+    resp.raise_for_status()
+    token_match = re.search(r'"token"\s*:\s*"([^"]+)"', resp.text)
+    cloud_match = re.search(r'"cloud"\s*:\s*"([^"]+)"', resp.text)
+    if not token_match or not cloud_match:
+        raise RuntimeError("csod: could not find session token/cloud host on home page")
+    cloud_host = cloud_match.group(1).removeprefix("https://").removeprefix("http://").rstrip("/")
+    return token_match.group(1), cloud_host, dict(resp.cookies)
+
+
+def _fetch_cornerstone_detail(tenant: str, token: str, cookies: dict, requisition_id) -> dict:
+    try:
+        resp = httpx.get(
+            f"https://{tenant}.csod.com/services/x/job-requisition/v2/requisitions/{requisition_id}/jobDetails",
+            params={"cultureId": 1},
+            headers={"User-Agent": USER_AGENT, "Authorization": f"Bearer {token}"},
+            cookies=cookies,
+            timeout=TIMEOUT,
+        )
+        resp.raise_for_status()
+        info = resp.json().get("data") or {}
+        description = info.get("externalDescription", "") or ""
+        return {
+            "description": description,
+            "posted_at": info.get("openDate"),
+            "url": info.get("companyApplyUrl"),
+            "salary": _extract_salary_from_text(description),
+        }
+    except Exception:
+        return {"description": "", "posted_at": None, "url": None, "salary": None}
+
+
+_CORNERSTONE_DETAIL_WORKERS = 8
+
+
+def fetch_cornerstone(company_display_name: str, slug: str) -> list[dict]:
+    # Cornerstone OnDemand (CSOD) career sites expose a real, undocumented
+    # JSON API their own SPA calls — confirmed live 2026-09-27 against MACOM
+    # (236 jobs). `slug` is "{tenant}/{careerSiteId}" — both read off the
+    # company's real careers URL, e.g. macomtech.csod.com/ux/ats/careersite/
+    # 4/home?c=macomtech gives slug "macomtech/4". See companies.yaml's
+    # header comment. Unlike every other fetcher here, this needs a short
+    # session-priming step first (one GET of the site's own home page) to
+    # get an anonymous JWT + cookies before the real API calls work.
+    tenant, _, career_site_id = slug.partition("/")
+    token, cloud_host, cookies = _fetch_cornerstone_session(tenant, career_site_id)
+
+    resp = httpx.post(
+        f"https://{cloud_host}/rec-job-search/external/jobs",
+        json={
+            "careerSiteId": int(career_site_id), "careerSitePageId": int(career_site_id),
+            "pageNumber": 1, "pageSize": 100, "cultureId": 1, "searchText": "",
+            "cultureName": "en-US", "states": [], "countryCodes": [], "cities": [],
+            "placeID": "", "radius": None, "postingsWithinDays": None,
+            "customFieldCheckboxKeys": [], "customFieldDropdowns": [], "customFieldRadios": [],
+        },
+        headers={"User-Agent": USER_AGENT, "Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+        timeout=TIMEOUT,
+    )
+    resp.raise_for_status()
+    data = resp.json().get("data") or {}
+    total = data.get("totalCount") or 0
+    requisitions = list(data.get("requisitions") or [])
+
+    if total > len(requisitions):
+        for page_number in range(2, (total // 100) + 2):
+            r = httpx.post(
+                f"https://{cloud_host}/rec-job-search/external/jobs",
+                json={
+                    "careerSiteId": int(career_site_id), "careerSitePageId": int(career_site_id),
+                    "pageNumber": page_number, "pageSize": 100, "cultureId": 1, "searchText": "",
+                    "cultureName": "en-US", "states": [], "countryCodes": [], "cities": [],
+                    "placeID": "", "radius": None, "postingsWithinDays": None,
+                    "customFieldCheckboxKeys": [], "customFieldDropdowns": [], "customFieldRadios": [],
+                },
+                headers={"User-Agent": USER_AGENT, "Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+                timeout=TIMEOUT,
+            )
+            r.raise_for_status()
+            page_reqs = (r.json().get("data") or {}).get("requisitions") or []
+            if not page_reqs:
+                break
+            requisitions.extend(page_reqs)
+
+    jobs = []
+    pending_detail = []  # (index into `jobs`, requisition_id)
+    for r in requisitions:
+        req_id = r.get("requisitionId")
+        title = r.get("displayJobTitle", "")
+        locs = r.get("locations") or []
+        location = ", ".join(
+            ", ".join(p for p in (loc.get("city"), loc.get("state"), loc.get("country")) if p) for loc in locs
+        )
+        if req_id is None:
+            continue
+        jobs.append({
+            "company": company_display_name,
+            "title": title,
+            "location": location,
+            "url": f"https://{tenant}.csod.com/ux/ats/careersite/{career_site_id}/home/requisition/{req_id}?c={tenant}",
+            "posted_at": None,
+            "description": r.get("externalDescription", "") or "",
+            "salary": None,
+        })
+        if filters.title_is_relevant(title) and filters.location_is_allowed(location):
+            pending_detail.append((len(jobs) - 1, req_id))
+
+    if pending_detail:
+        with ThreadPoolExecutor(max_workers=_CORNERSTONE_DETAIL_WORKERS) as pool:
+            future_to_index = {
+                pool.submit(_fetch_cornerstone_detail, tenant, token, cookies, req_id): idx
+                for idx, req_id in pending_detail
+            }
+            for future in as_completed(future_to_index):
+                idx = future_to_index[future]
+                detail = future.result()
+                if detail["description"]:
+                    jobs[idx]["description"] = detail["description"]
+                jobs[idx]["posted_at"] = detail["posted_at"]
+                jobs[idx]["salary"] = detail["salary"] or _extract_salary_from_text(jobs[idx]["description"])
+                if detail["url"]:
+                    jobs[idx]["url"] = detail["url"]
+
+    return jobs
+
+
+def _google_parse_page(html_text: str) -> tuple[list, int, int]:
+    """Google's careers page has no separate JSON API call — the full
+    result set for that page is rendered server-side straight into the
+    HTML as `AF_initDataCallback({key: 'ds:1', ..., data: [...]})`, a JS
+    object literal whose `data:` value happens to be valid JSON:
+    `[records, null, total_count, page_size]`. Returns
+    (records, total_count, page_size) — records still in Google's own
+    positional-array shape, unpacked by the caller. ([], 0, 0) if the
+    marker isn't found (e.g. a past-the-end page)."""
+    idx = html_text.find("key: 'ds:1'")
+    if idx == -1:
+        return [], 0, 0
+    data_idx = html_text.find("data:", idx)
+    if data_idx == -1:
+        return [], 0, 0
+    start = html_text.find("[", data_idx)
+    if start == -1:
+        return [], 0, 0
+    try:
+        parsed, _ = json.JSONDecoder().raw_decode(html_text[start:])
+    except Exception:
+        return [], 0, 0
+    if not parsed or not isinstance(parsed[0], list):
+        return [], 0, 0
+    total = parsed[2] if len(parsed) > 2 and isinstance(parsed[2], int) else 0
+    page_size = parsed[3] if len(parsed) > 3 and isinstance(parsed[3], int) else 20
+    return parsed[0], total, page_size
+
+
+def _google_records_to_jobs(records: list, company_display_name: str) -> list[dict]:
+    jobs = []
+    for r in records:
+        try:
+            job_id, title = r[0], r[1]
+            locations = r[9] or []
+            location = ", ".join(loc[0] for loc in locations if loc and loc[0])
+            description = (r[10] or [None, ""])[1] or ""
+            created = r[12] if len(r) > 12 else None
+            posted_at = _epoch_seconds_to_iso(created[0]) if created else None
+        except (IndexError, TypeError):
+            continue
+        if not job_id or not title:
+            continue
+        slug_title = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-")
+        jobs.append({
+            "company": company_display_name,
+            "title": title,
+            "location": location,
+            "url": f"https://www.google.com/about/careers/applications/jobs/results/{job_id}-{slug_title}",
+            "posted_at": posted_at,
+            "description": description,
+            "salary": _extract_salary_from_text(description),
+        })
+    return jobs
+
+
+_GOOGLE_LIST_WORKERS = 8
+
+
+def fetch_google(company_display_name: str, slug: str) -> list[dict]:
+    # Google's careers site (careers.google.com -> google.com/about/careers)
+    # has no third-party ATS — job data is server-side-rendered straight
+    # into the HTML (see _google_parse_page), reachable with a plain
+    # unauthenticated GET, confirmed live 2026-09-27 (no rate-limiting hit
+    # across repeated requests). `slug` is the `location` query param
+    # Google's own site uses to scope the search server-side (e.g. "United
+    # States") — Google's real board has thousands of postings worldwide,
+    # so this keeps the fetch to a relevant subset, the same way
+    # aggregators.yaml's `where` scopes Adzuna.
+    #
+    # Each job record is a POSITIONAL array (protobuf-JSON-ish, not a named
+    # object) — field indices confirmed live against a real posting:
+    # 0=id, 1=title, 9=locations, 10=[_, description_html],
+    # 12=[posted_unix_seconds, _]. This is Google's own internal render
+    # payload, not a documented contract — could shift without notice, same
+    # caveat as Workday's CXS/Gem's GraphQL API elsewhere in this module.
+    #
+    # The response gives the true total on page 1, so remaining pages are
+    # fetched concurrently instead of walked one at a time — same idea as
+    # _fetch_all_workday_postings, needed here too since "United States" is
+    # thousands of postings across ~200+ pages.
+    def _fetch_page_records(page_num: int) -> list:
+        resp = httpx.get(
+            "https://www.google.com/about/careers/applications/jobs/results/",
+            params={"location": slug, "page": page_num},
+            headers={"User-Agent": USER_AGENT},
+            timeout=TIMEOUT,
+        )
+        resp.raise_for_status()
+        records, _, _ = _google_parse_page(resp.text)
+        return records
+
+    first_resp = httpx.get(
+        "https://www.google.com/about/careers/applications/jobs/results/",
+        params={"location": slug, "page": 1},
+        headers={"User-Agent": USER_AGENT},
+        timeout=TIMEOUT,
+    )
+    first_resp.raise_for_status()
+    first_records, total, page_size = _google_parse_page(first_resp.text)
+    if not first_records:
+        return []
+    all_records = list(first_records)
+
+    if total > len(all_records) and page_size:
+        total_pages = -(-total // page_size)  # ceil
+        with ThreadPoolExecutor(max_workers=_GOOGLE_LIST_WORKERS) as pool:
+            for records in pool.map(_fetch_page_records, range(2, total_pages + 1)):
+                all_records.extend(records)
+
+    return _google_records_to_jobs(all_records, company_display_name)
+
+
+def _apple_parse_hydration(html_text: str) -> dict | None:
+    """Apple's careers site is a custom React app whose own client API is
+    CSRF/session-gated, BUT the initial page is server-rendered with the
+    full result set embedded as a JSON string inside
+    `window.__staticRouterHydrationData = JSON.parse("...")` — reachable
+    with a plain unauthenticated GET."""
+    idx = html_text.find("window.__staticRouterHydrationData")
+    if idx == -1:
+        return None
+    start = html_text.find("JSON.parse(", idx)
+    if start == -1:
+        return None
+    start += len("JSON.parse(")
+    try:
+        raw_string, _ = json.JSONDecoder().raw_decode(html_text[start:])
+        return json.loads(raw_string)
+    except Exception:
+        return None
+
+
+def _find_by_keys(node, *required_keys):
+    """Recursively finds the first dict in `node` containing every one of
+    `required_keys` — used instead of a hardcoded route-id path since React
+    Router's internal route keys aren't a stable public contract."""
+    if isinstance(node, dict):
+        if all(k in node for k in required_keys):
+            return node
+        for v in node.values():
+            found = _find_by_keys(v, *required_keys)
+            if found is not None:
+                return found
+    elif isinstance(node, list):
+        for v in node:
+            found = _find_by_keys(v, *required_keys)
+            if found is not None:
+                return found
+    return None
+
+
+def _apple_results_to_jobs(results: list, company_display_name: str) -> list[dict]:
+    jobs = []
+    for r in results:
+        title = r.get("postingTitle", "")
+        locations = r.get("locations") or []
+        location = ", ".join(loc.get("name", "") for loc in locations if loc.get("name"))
+        position_id = r.get("positionId", "")
+        path_title = r.get("transformedPostingTitle", "")
+        if not position_id or not title:
+            continue
+        jobs.append({
+            "company": company_display_name,
+            "title": title,
+            "location": location,
+            "url": f"https://jobs.apple.com/en-us/details/{position_id}/{path_title}",
+            "posted_at": r.get("postDateInGMT"),
+            "description": r.get("jobSummary", "") or "",
+            "salary": None,
+        })
+    return jobs
+
+
+_APPLE_LIST_WORKERS = 8
+_APPLE_PAGE_SIZE = 20  # observed page size, confirmed live 2026-09-27
+
+
+def fetch_apple(company_display_name: str, slug: str) -> list[dict]:
+    # Apple's careers site (jobs.apple.com) has no third-party ATS — see
+    # _apple_parse_hydration for how job data is reached without auth.
+    # `slug` is the `location` query param Apple's own site uses (e.g.
+    # "united-states-USA"). Confirmed live 2026-09-27, no rate-limiting hit
+    # across 10 rapid requests. Only the short listing-page `jobSummary` is
+    # used as description here (no per-job detail fetch) to keep this
+    # fetcher's request volume bounded — Apple's board is large and a full
+    # per-job fetch would be a lot of extra requests for a company with no
+    # salary data available either way; title/location filtering is
+    # unaffected, only the JD-based stack-dealbreaker check runs on a
+    # shorter text than usual.
+    #
+    # totalRecords on page 1 drives concurrent fetching of the rest, same
+    # idea as fetch_google/fetch_workday — a broad location like "United
+    # States" is thousands of postings across ~200+ pages.
+    def _fetch_page_search_data(page_num: int) -> dict:
+        resp = httpx.get(
+            "https://jobs.apple.com/en-us/search",
+            params={"location": slug, "page": page_num},
+            headers={"User-Agent": USER_AGENT},
+            timeout=TIMEOUT,
+        )
+        resp.raise_for_status()
+        data = _apple_parse_hydration(resp.text)
+        return _find_by_keys(data, "searchResults", "totalRecords") if data else {}
+
+    first_search_data = _fetch_page_search_data(1) or {}
+    first_results = first_search_data.get("searchResults") or []
+    if not first_results:
+        return []
+    all_results = list(first_results)
+    total = first_search_data.get("totalRecords") or 0
+
+    if total > len(all_results):
+        total_pages = -(-total // _APPLE_PAGE_SIZE)  # ceil
+        with ThreadPoolExecutor(max_workers=_APPLE_LIST_WORKERS) as pool:
+            for search_data in pool.map(_fetch_page_search_data, range(2, total_pages + 1)):
+                all_results.extend((search_data or {}).get("searchResults") or [])
+
+    return _apple_results_to_jobs(all_results, company_display_name)
+
+
+def _shopify_resolve(data: list, idx: int, depth: int = 0, max_depth: int = 8):
+    """React Router 7 "single fetch" `.data` responses are a flat JSON
+    array where most entries are either literal values or REFERENCE dicts
+    of the shape {"_<name_index>": <value_index_or_literal>}: the key's
+    numeric suffix is itself an index into `data` holding the property's
+    NAME (a string), and the value is either another index to recursively
+    resolve, or a literal (bool/string/null) used as-is. A negative int
+    value is React Router's own "undefined-ish" sentinel, not an index —
+    treated as None. Empirically reverse-engineered against a real
+    response (2026-09-27) and verified to reproduce known field values
+    (e.g. "url" -> "https://www.shopify.com/careers") before use here."""
+    if depth > max_depth or not (0 <= idx < len(data)):
+        return None
+    val = data[idx]
+    if isinstance(val, dict) and val and all(k.startswith("_") and k[1:].isdigit() for k in val):
+        out = {}
+        for k, v in val.items():
+            name = data[int(k[1:])]
+            if isinstance(v, int):
+                out[name] = _shopify_resolve(data, v, depth + 1, max_depth) if v >= 0 else None
+            else:
+                out[name] = v
+        return out
+    if isinstance(val, list):
+        return [
+            (_shopify_resolve(data, v, depth + 1, max_depth) if v >= 0 else None) if isinstance(v, int) else v
+            for v in val
+        ]
+    return val
+
+
+def _shopify_find_route_index(data: list, name_needle: str) -> int | None:
+    for i, v in enumerate(data):
+        if isinstance(v, dict) and any(
+            k.startswith("_") and k[1:].isdigit() and data[int(k[1:])] == name_needle for k in v
+        ):
+            return i
+    return None
+
+
+def _shopify_slugify(title: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-")
+
+
+def fetch_shopify(company_display_name: str, slug: str) -> list[dict]:
+    # Shopify's careers site (shopify.com/careers) has no third-party ATS
+    # exposed publicly — it's a custom React Router 7 (Remix) SSR app, whose
+    # route-loader JSON is reachable at `{page-url}.data` with no auth (the
+    # `.data` suffix is React Router's own "single fetch" convention).
+    # Confirmed live 2026-09-27: all 114 open jobs come back in ONE request,
+    # no pagination needed. `slug` is unused (single-company fetcher).
+    # See _shopify_resolve for the response format.
+    resp = httpx.get(
+        "https://www.shopify.com/careers.data",
+        headers={"User-Agent": USER_AGENT},
+        timeout=TIMEOUT,
+    )
+    resp.raise_for_status()
+    data = resp.json()
+    route_idx = _shopify_find_route_index(data, "jobPostingsWithJobs")
+    if route_idx is None:
+        return []
+    route_data = _shopify_resolve(data, route_idx, max_depth=6)
+    entries = (route_data or {}).get("jobPostingsWithJobs") or []
+
+    jobs = []
+    for entry in entries:
+        jp = (entry or {}).get("jobPosting") or {}
+        job_id = jp.get("id")
+        title = jp.get("title", "")
+        if not job_id or not title:
+            continue
+        jobs.append({
+            "company": company_display_name,
+            "title": title,
+            "location": jp.get("locationName", "") or "",
+            "url": f"https://www.shopify.com/careers/{_shopify_slugify(title)}_{job_id}",
+            "posted_at": jp.get("publishedDate"),
+            "description": "",
+            "salary": None,
+        })
+
+    pending_detail = [
+        (i, j["url"]) for i, j in enumerate(jobs)
+        if filters.title_is_relevant(j["title"]) and filters.location_is_allowed(j["location"])
+    ]
+
+    def _fetch_detail(url: str) -> dict:
+        try:
+            r = httpx.get(f"{url}.data", headers={"User-Agent": USER_AGENT}, timeout=TIMEOUT)
+            r.raise_for_status()
+            d = r.json()
+            ridx = _shopify_find_route_index(d, "jobPosting")
+            resolved = _shopify_resolve(d, ridx, max_depth=8) if ridx is not None else {}
+            jp = (resolved or {}).get("jobPosting") or {}
+            description = jp.get("descriptionHtml", "") or ""
+            return {"description": description, "salary": _extract_salary_from_text(description)}
+        except Exception:
+            return {"description": "", "salary": None}
+
+    if pending_detail:
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            future_to_index = {pool.submit(_fetch_detail, url): idx for idx, url in pending_detail}
+            for future in as_completed(future_to_index):
+                idx = future_to_index[future]
+                detail = future.result()
+                jobs[idx]["description"] = detail["description"]
+                jobs[idx]["salary"] = detail["salary"]
+
+    return jobs
+
+
+def _meta_session() -> tuple[str, dict]:
+    """Meta's GraphQL endpoint validates an `lsd` token against an anonymous
+    session tied to a `datr` cookie — both come from just loading the
+    public job-search page once, no login needed. Meta's edge only sets the
+    `datr` cookie on a request that carries the `Sec-Fetch-*` headers a
+    real top-level browser navigation sends (confirmed live 2026-09-27:
+    identical request minus these headers gets a 200 with no cookie at
+    all) — these describe how the fetch is being made, not a different
+    identity, so this module's own USER_AGENT is unchanged."""
+    resp = httpx.get(
+        "https://www.metacareers.com/jobsearch/",
+        headers={
+            "User-Agent": USER_AGENT,
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Language": "en-US,en;q=0.9",
+            "Sec-Fetch-Mode": "navigate",
+            "Sec-Fetch-Dest": "document",
+            "Sec-Fetch-Site": "none",
+        },
+        timeout=TIMEOUT,
+    )
+    resp.raise_for_status()
+    m = re.search(r'\["LSD",\[\],\{"token":"([^"]+)"', resp.text)
+    if not m:
+        raise RuntimeError("meta: could not find LSD token on jobsearch page")
+    return m.group(1), dict(resp.cookies)
+
+
+_META_SEARCH_DOC_ID = "27506805582236862"  # CareersJobSearchResultsDataQuery, persisted GraphQL query
+
+
+def fetch_meta(company_display_name: str, slug: str) -> list[dict]:
+    # Meta's careers site (metacareers.com) has no third-party ATS — it
+    # calls its own internal GraphQL endpoint, reverse-engineered from the
+    # page's own JS the same way fetch_gem's endpoint was, confirmed live
+    # 2026-09-27 (1017 open postings returned in ONE request — no
+    # pagination observed/needed). Unlike every other fetcher here, this
+    # needs a short session-priming step first (one GET of the public job
+    # search page) to get a `datr` cookie + `lsd` token before the GraphQL
+    # call is accepted — still fully anonymous, no login. `slug` is unused
+    # (single-company fetcher).
+    lsd, cookies = _meta_session()
+    variables = {
+        "isLoggedIn": False,
+        "search_input": {
+            "q": None, "divisions": [], "offices": [], "roles": [], "leadership_levels": [],
+            "saved_jobs": [], "saved_searches": [], "sub_teams": [], "teams": [],
+            "is_leadership": False, "is_remote_only": False, "sort_by_new": False,
+            "page": 1, "results_per_page": None,
+        },
+        "viewasUserID": None,
+    }
+    resp = httpx.post(
+        "https://www.metacareers.com/api/graphql/",
+        data={
+            "doc_id": _META_SEARCH_DOC_ID,
+            "variables": json.dumps(variables),
+            "fb_dtsg": "",
+            "lsd": lsd,
+        },
+        headers={
+            "User-Agent": USER_AGENT,
+            "Content-Type": "application/x-www-form-urlencoded",
+            "Referer": "https://www.metacareers.com/jobsearch/",
+            "Origin": "https://www.metacareers.com",
+            "Accept": "*/*",
+            "Sec-Fetch-Mode": "cors",
+            "Sec-Fetch-Dest": "empty",
+            "Sec-Fetch-Site": "same-origin",
+        },
+        cookies=cookies,
+        timeout=TIMEOUT,
+    )
+    resp.raise_for_status()
+    result = resp.json().get("data") or {}
+    all_jobs = (result.get("job_search_with_featured_jobs") or {}).get("all_jobs") or []
+
+    jobs = []
+    for p in all_jobs:
+        job_id = p.get("id")
+        title = p.get("title", "")
+        locations = p.get("locations") or []
+        location = ", ".join(locations)
+        if not job_id or not title:
+            continue
+        jobs.append({
+            "company": company_display_name,
+            "title": title,
+            "location": location,
+            "url": f"https://www.metacareers.com/jobs/{job_id}/",
+            "posted_at": None,
+            "description": "",
+            "salary": None,
+        })
+
+    def _fetch_detail(job_id) -> dict:
+        try:
+            r = httpx.get(f"https://www.metacareers.com/jobs/{job_id}/", headers={"User-Agent": USER_AGENT}, timeout=TIMEOUT, follow_redirects=True)
+            r.raise_for_status()
+            m = re.search(r'"description"\s*:\s*"((?:[^"\\]|\\.)*)"', r.text)
+            description = json.loads(f'"{m.group(1)}"') if m else ""
+            comp_m = re.search(
+                r'"compensation_amount_minimum"\s*:\s*"([^"]+)"\s*,\s*"compensation_amount_maximum"\s*:\s*"([^"]+)"',
+                r.text,
+            )
+            salary = f"{comp_m.group(1)} – {comp_m.group(2)}" if comp_m else _extract_salary_from_text(description)
+            return {"description": description, "salary": salary}
+        except Exception:
+            return {"description": "", "salary": None}
+
+    pending_detail = [
+        (i, j["url"].rstrip("/").rsplit("/", 1)[-1]) for i, j in enumerate(jobs)
+        if filters.title_is_relevant(j["title"]) and filters.location_is_allowed(j["location"])
+    ]
+    if pending_detail:
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            future_to_index = {pool.submit(_fetch_detail, job_id): idx for idx, job_id in pending_detail}
+            for future in as_completed(future_to_index):
+                idx = future_to_index[future]
+                detail = future.result()
+                jobs[idx]["description"] = detail["description"]
+                jobs[idx]["salary"] = detail["salary"]
+
+    return jobs
+
+
+_AVATURE_RESULT_RE = re.compile(
+    r'<article class="article article--result"[^>]*>.*?<a class="link" href="([^"]+)"[^>]*>\s*([^<]+?)\s*</a>',
+    re.DOTALL,
+)
+_AVATURE_FIELD_RE = re.compile(
+    r'<div class="article__content__view__field[^"]*">\s*'
+    r'<div class="article__content__view__field__label">\s*([^<]+?)\s*</div>\s*'
+    r'<div class="article__content__view__field__value">\s*([^<]*?)\s*</div>',
+    re.DOTALL,
+)
+
+
+def _fetch_avature_detail(tenant: str, path: str) -> dict:
+    """Avature has no JSON API at all — the job-detail page is plain
+    server-rendered HTML with a consistent label/value div structure per
+    field (confirmed live on Synopsys). Best-effort: any parse failure
+    means an empty description, same as every other detail fetch here."""
+    try:
+        resp = httpx.get(f"https://{tenant}.avature.net{path}", headers={"User-Agent": USER_AGENT}, timeout=TIMEOUT)
+        resp.raise_for_status()
+        fields = {label.strip(): value.strip() for label, value in _AVATURE_FIELD_RE.findall(resp.text)}
+        city, country = fields.get("City", ""), fields.get("Country", "")
+        location = ", ".join(p for p in (city, country) if p)
+        # Starts from the first field block rather than the "Job
+        # Description" label specifically: some custom fields (e.g. a
+        # "Base Salary Range: $X - $Y" block, confirmed live on a real
+        # Synopsys posting) have no label at all and render BEFORE the
+        # description in the page — starting here instead of at the
+        # description label is what lets _extract_salary_from_text below
+        # actually see it.
+        desc_idx = resp.text.find('class="article__content__view__field')
+        description = filters.strip_html(resp.text[desc_idx:desc_idx + 20000]) if desc_idx != -1 else ""
+        return {
+            "location": location,
+            "posted_at": fields.get("Date Posted"),
+            "description": description,
+            "salary": _extract_salary_from_text(description),
+        }
+    except Exception:
+        return {"location": "", "posted_at": None, "description": "", "salary": None}
+
+
+_AVATURE_DETAIL_WORKERS = 6
+
+
+def fetch_avature(company_display_name: str, slug: str) -> list[dict]:
+    # Avature career portals have no public JSON/XML API of any kind — pure
+    # server-rendered HTML, confirmed live 2026-09-27 against Synopsys (528
+    # open postings). `slug` is just the tenant subdomain (e.g. "synopsys"
+    # for synopsys.avature.net). List pages have title/URL/job-ID/posted-
+    # date but no location — that only lives on the per-job detail page, so
+    # (unlike most fetchers here) every candidate needs a detail fetch to
+    # even know its location, not just its description.
+    # jobRecordsPerPage is accepted but silently ignored — confirmed live
+    # 2026-09-27 that requesting 100 still only returns 6 records per call,
+    # so this has to be treated as a genuinely fixed page size and paged
+    # (concurrently) by real 6-record steps, not a tunable one.
+    page_size = 6
+    seen_urls = set()
+
+    def _fetch_list_page(offset: int) -> list[dict]:
+        resp = httpx.get(
+            f"https://{slug}.avature.net/careers/SearchJobs/",
+            params={"jobRecordsPerPage": page_size, "jobOffset": offset},
+            headers={"User-Agent": USER_AGENT},
+            timeout=TIMEOUT,
+        )
+        resp.raise_for_status()
+        return resp.text
+
+    first_html = _fetch_list_page(0)
+    total_match = re.search(r"([\d,]+)\s+results?", first_html, re.IGNORECASE)
+    total = int(total_match.group(1).replace(",", "")) if total_match else 0
+
+    jobs = []
+
+    def _extract(html_text: str):
+        # The regex's href capture is already a full absolute URL (Avature
+        # renders it that way, not a relative path) — use it as-is; do NOT
+        # prepend the domain again (that silently produced a malformed
+        # double-prefixed URL here during development, which the detail
+        # fetch's try/except swallowed into an empty result for every job).
+        for url, title in _AVATURE_RESULT_RE.findall(html_text):
+            if url in seen_urls:
+                continue
+            seen_urls.add(url)
+            jobs.append({
+                "company": company_display_name,
+                "title": title.strip(),
+                "location": "",
+                "url": url,
+                "posted_at": None,
+                "description": "",
+                "salary": None,
+            })
+
+    _extract(first_html)
+
+    if total > len(jobs):
+        offsets = range(page_size, total, page_size)
+        with ThreadPoolExecutor(max_workers=_AVATURE_DETAIL_WORKERS) as pool:
+            for html_text in pool.map(_fetch_list_page, offsets):
+                _extract(html_text)
+
+    pending_detail = [
+        (i, j["url"].removeprefix(f"https://{slug}.avature.net"))
+        for i, j in enumerate(jobs) if filters.title_is_relevant(j["title"])
+    ]
+    if pending_detail:
+        with ThreadPoolExecutor(max_workers=_AVATURE_DETAIL_WORKERS) as pool:
+            future_to_index = {pool.submit(_fetch_avature_detail, slug, path): idx for idx, path in pending_detail}
+            for future in as_completed(future_to_index):
+                idx = future_to_index[future]
+                detail = future.result()
+                jobs[idx]["location"] = detail["location"]
+                jobs[idx]["posted_at"] = detail["posted_at"]
+                jobs[idx]["description"] = detail["description"]
+                jobs[idx]["salary"] = detail["salary"]
+
+    # Location only resolves via the (gated) detail fetch above, so a job
+    # whose title didn't look relevant never gets a location at all and
+    # would incorrectly fail location_is_allowed downstream — drop those
+    # ungated rows here instead of shipping them with a blank location.
+    return [j for j in jobs if j["location"]]
+
+
+_HRDEPARTMENT_ROW_RE = re.compile(
+    r'<a href="(/hr/ats/Posting/view/\d+)">\s*<span>([^<]+)</span>\s*</a></td>\s*'
+    r'<td>(\d+)</td>\s*<td>\s*([^<]*?)\s*</br>\s*</td>\s*<td>([^<]*)</td>',
+    re.DOTALL,
+)
+
+
+def _fetch_hrdepartment_detail(base_url: str, path: str) -> dict:
+    try:
+        resp = httpx.get(f"{base_url}{path}", headers={"User-Agent": USER_AGENT}, timeout=TIMEOUT)
+        resp.raise_for_status()
+        m = re.search(
+            r'id="job_details_ats_requisition_description"[^>]*>(.*?)</div>\s*</div>', resp.text, re.DOTALL
+        )
+        description = filters.strip_html(m.group(1)) if m else ""
+        return {"description": description, "salary": _extract_salary_from_text(description)}
+    except Exception:
+        return {"description": "", "salary": None}
+
+
+_HRDEPARTMENT_DETAIL_WORKERS = 6
+
+
+def fetch_hrdepartment(company_display_name: str, slug: str) -> list[dict]:
+    # HRDepartment ATS career portals have no public JSON/XML API — pure
+    # server-rendered HTML, confirmed live 2026-09-27 against Sanmina-SCI
+    # (984 open postings). `slug` is the full subdomain prefix up to
+    # ".hrdepartment.com" (e.g. "sanminacareers.mua" for
+    # sanminacareers.mua.hrdepartment.com). No location filter is possible
+    # up front — location is on the list page (unlike Avature) but there's
+    # no separate salary/date-posted field found anywhere on this platform.
+    base_url = f"https://{slug}.hrdepartment.com"
+    page_size = 100
+    seen_paths = set()
+    jobs = []
+
+    def _fetch_list_page(page_num: int) -> str:
+        resp = httpx.get(
+            f"{base_url}/hr/ats/JobSearch/viewAll/jobSearchPaginationExternal_pageSize:{page_size}"
+            f"/jobSearchPaginationExternal_page:{page_num}",
+            headers={"User-Agent": USER_AGENT},
+            timeout=TIMEOUT,
+        )
+        resp.raise_for_status()
+        return resp.text
+
+    def _extract(html_text: str):
+        for path, title, _req_num, _category, location in _HRDEPARTMENT_ROW_RE.findall(html_text):
+            if path in seen_paths:
+                continue
+            seen_paths.add(path)
+            jobs.append({
+                "company": company_display_name,
+                "title": title.strip(),
+                "location": location.strip(),
+                "url": f"{base_url}{path}",
+                "posted_at": None,
+                "description": "",
+                "salary": None,
+            })
+
+    first_html = _fetch_list_page(1)
+    _extract(first_html)
+    # "Displaying 1 - 100 of 984" gives the true total — driving pagination
+    # off this (like every other multi-page fetcher here) rather than
+    # walking until a page comes back empty, because this platform doesn't
+    # do that: querying a page number past the real end just re-serves the
+    # LAST real page's content again instead of an empty result, which
+    # would otherwise loop until an arbitrary sanity cap (confirmed live
+    # 2026-09-27 — a real, easy-to-hit bug, not a hypothetical one).
+    total_match = re.search(r"of\s+([\d,]+)", first_html)
+    total = int(total_match.group(1).replace(",", "")) if total_match else len(jobs)
+
+    if total > len(jobs):
+        total_pages = -(-total // page_size)  # ceil
+        with ThreadPoolExecutor(max_workers=_HRDEPARTMENT_DETAIL_WORKERS) as pool:
+            for html_text in pool.map(_fetch_list_page, range(2, total_pages + 1)):
+                _extract(html_text)
+
+    pending_detail = [
+        (i, j["url"].removeprefix(base_url)) for i, j in enumerate(jobs)
+        if filters.title_is_relevant(j["title"]) and filters.location_is_allowed(j["location"])
+    ]
+    if pending_detail:
+        with ThreadPoolExecutor(max_workers=_HRDEPARTMENT_DETAIL_WORKERS) as pool:
+            future_to_index = {
+                pool.submit(_fetch_hrdepartment_detail, base_url, path): idx for idx, path in pending_detail
+            }
+            for future in as_completed(future_to_index):
+                idx = future_to_index[future]
+                detail = future.result()
+                jobs[idx]["description"] = detail["description"]
+                jobs[idx]["salary"] = detail["salary"]
+
+    return jobs
+
+
+_GR8PEOPLE_SEARCH_QUERY = """
+query searchJobs($start: Int, $first: Int) {
+  searchJobs: searchGoogleJobDiscovery(start: $start, first: $first) {
+    results {
+      totalCount
+      pageInfo { hasNextPage endCursor }
+      nodes {
+        key
+        title
+        postedOn
+        primaryPlace { name }
+        descriptionHTML
+      }
+    }
+  }
+}
+"""
+
+
+def fetch_gr8people(company_display_name: str, slug: str) -> list[dict]:
+    # gr8people career sites expose a real, public, unauthenticated GraphQL
+    # API at {tenant}.gr8people.com/graphql, confirmed live 2026-09-27
+    # against gr8people's own demo tenant (careers.gr8people.com) — every
+    # customer runs the same underlying app, so this same query shape
+    # should carry over to a newly-added tenant. `slug` is the tenant
+    # subdomain (e.g. "ea" for ea.gr8people.com). NOTE: this specific
+    # platform's dev-time verification could not be completed against a
+    # real customer tenant from this codebase's own network (EA's
+    # ea.gr8people.com 403-blocked every request here, from a plain HTML
+    # fetch to the GraphQL endpoint itself — looks like a tenant-level
+    # WAF/CDN rule, not anything wrong with the query) — verify a newly-
+    # added gr8people company with `python -m app.main --company <slug>`
+    # before trusting it, same as any other undocumented-API fetcher here.
+    jobs = []
+    start = 0
+    page_size = 50
+    while True:
+        resp = httpx.post(
+            f"https://{slug}.gr8people.com/graphql",
+            json={
+                "operationName": "searchJobs",
+                "variables": {"start": start, "first": page_size},
+                "query": _GR8PEOPLE_SEARCH_QUERY,
+            },
+            headers={"User-Agent": USER_AGENT, "Content-Type": "application/json", "Accept": "application/json"},
+            timeout=TIMEOUT,
+        )
+        resp.raise_for_status()
+        results = ((resp.json().get("data") or {}).get("searchJobs") or {}).get("results") or {}
+        nodes = results.get("nodes") or []
+        if not nodes:
+            break
+        for n in nodes:
+            key = n.get("key")
+            title = n.get("title", "")
+            place = n.get("primaryPlace") or {}
+            location = place.get("name", "") or ""
+            description = n.get("descriptionHTML", "") or ""
+            if not key or not title:
+                continue
+            jobs.append({
+                "company": company_display_name,
+                "title": title,
+                "location": location,
+                "url": f"https://{slug}.gr8people.com/jobs/{key}",
+                "posted_at": n.get("postedOn"),
+                "description": description,
+                "salary": _extract_salary_from_text(description),
+            })
+        if not (results.get("pageInfo") or {}).get("hasNextPage"):
+            break
+        start += page_size
+        if start > 20000:  # sanity guard
+            break
+    return jobs
+
+
 FETCHERS = {
     "greenhouse": fetch_greenhouse,
     "ashby": fetch_ashby,
@@ -1027,6 +2333,18 @@ FETCHERS = {
     "rippling": fetch_rippling,
     "teamtailor": fetch_teamtailor,
     "gem": fetch_gem,
+    "oraclecloud": fetch_oraclecloud,
+    "successfactors": fetch_successfactors,
+    "icims": fetch_icims,
+    "eightfold": fetch_eightfold,
+    "cornerstone": fetch_cornerstone,
+    "avature": fetch_avature,
+    "hrdepartment": fetch_hrdepartment,
+    "gr8people": fetch_gr8people,
+    "google": fetch_google,
+    "apple": fetch_apple,
+    "shopify": fetch_shopify,
+    "meta": fetch_meta,
 }
 
 

@@ -1,5 +1,9 @@
 # Company registry for the job discovery pipeline.
-# ats: one of "greenhouse" | "ashby" | "workable" | "lever" | "smartrecruiters" | "workday" | "bamboohr" | "rippling" | "teamtailor" | "gem"
+# ats: one of "greenhouse" | "ashby" | "workable" | "lever" | "smartrecruiters"
+#   | "workday" | "bamboohr" | "rippling" | "teamtailor" | "gem"
+#   | "oraclecloud" | "successfactors" | "icims" | "eightfold" | "cornerstone"
+#   | "avature" | "hrdepartment" | "gr8people" | "google" | "apple" | "shopify"
+#   | "meta"
 # slug: the identifier used in that ATS's public API URL
 #   - workday is the odd one out: slug is "{tenant}.wd{N}/{site}", read off
 #     the company's careers URL — e.g.
@@ -17,6 +21,57 @@
 #     — e.g. https://jobs.gem.com/11x-ai gives slug "11x-ai". See
 #     ats_clients.fetch_gem's CONFIDENCE NOTE — this one's reverse-engineered
 #     from an undocumented internal API, same caveat as workday.
+#   - The 12 types below (added 2026-09-27) are each a real, unauthenticated
+#     way to read job data — either the company's own enterprise ATS's real
+#     public API (oraclecloud/successfactors/icims/eightfold/cornerstone),
+#     no API at all so it's HTML-scraped instead (avature/hrdepartment), an
+#     undocumented internal API their own custom career site's frontend
+#     calls (google/apple/meta), or React Router's own "single fetch" data
+#     endpoint (shopify) — gr8people has a real public GraphQL API too but
+#     the one real customer checked (EA) blocks this project's own network,
+#     so it's unverified end-to-end; see each fetcher's own docstring in
+#     ats_clients.py for exactly how it was reverse-engineered/verified.
+#   - oraclecloud's slug is "{host}/{site-id}" — {host} is whatever hostname
+#     the company's public careers page redirects to (works whether that's
+#     a raw *.fa.{region}.oraclecloud.com host or the company's own CNAME'd
+#     vanity domain — both answer the API directly), {site-id} is the
+#     trailing path segment of that redirect, e.g. careers.ti.com redirects
+#     to .../en/sites/CX, giving slug "edbz.fa.us2.oraclecloud.com/CX".
+#   - successfactors' slug is just the company's own careers hostname, e.g.
+#     "jobs.bce.ca" — the real data comes from a "Google for Jobs" XML feed
+#     at https://{slug}/googleforjobs.xml every SuccessFactors Career Site
+#     Builder site exposes (NOT always at /sitemap.xml — some tenants
+#     reserve that path for a real, jobless URL sitemap instead).
+#   - icims' slug is the company's OWN custom careers domain (NOT an
+#     icims.com subdomain — those are WAF/CAPTCHA-blocked), e.g.
+#     "careers.amd.com" — only iCIMS' newer "Attract"-branded front-ends
+#     (recognizable by a `window._jibe`/`app.jibecdn.com` reference in the
+#     page source) expose the public /api/jobs endpoint this uses.
+#   - eightfold's slug is "{host}/{domain}" — {host} is whatever domain the
+#     careers site itself lives on (may be *.eightfold.ai or the company's
+#     own custom domain), {domain} is the company's plain public domain
+#     (e.g. "netflix.com") used as the API's own scoping param — found
+#     embedded in the careers page's own HTML (a `"domain":"..."` field in
+#     an inline pcsx-data script block).
+#   - cornerstone's slug is "{tenant}/{careerSiteId}", read off the
+#     company's real careers URL — e.g. macomtech.csod.com/ux/ats/
+#     careersite/4/home?c=macomtech gives slug "macomtech/4".
+#   - avature's and hrdepartment's slugs are just the tenant subdomain, e.g.
+#     "synopsys" (for synopsys.avature.net) or "sanminacareers.mua" (for
+#     sanminacareers.mua.hrdepartment.com).
+#   - gr8people's slug is the tenant subdomain, e.g. "ea" for
+#     ea.gr8people.com.
+#   - google's and apple's slugs are the `location` query param each
+#     site's own search uses to scope results server-side (Google's board
+#     is huge and worldwide, so this keeps a fetch to a relevant subset,
+#     the same way aggregators.yaml's `where` scopes Adzuna) — e.g.
+#     "United States" for Google, "united-states-USA" for Apple (Apple's
+#     own location-slug format, read off its search page's URL).
+#   - shopify's and meta's slugs are unused by the fetcher itself
+#     (single-company fetchers), but still need a real, non-empty value
+#     (e.g. "shopify") rather than being left blank — a blank value parses
+#     as YAML null, which breaks `--company <slug>` debugging since
+#     main.py matches by exact slug.
 #
 # The list below is the original author's real target list (Alberta/Canada
 # tech companies), kept as-is as a working example of the format. Add or
@@ -795,11 +850,16 @@ companies:
   # Checked and deliberately NOT added — no public API on any ATS this tool
   # supports (Greenhouse/Ashby/Workable/Lever/SmartRecruiters/Workday); all
   # run fully proprietary/custom career sites:
-  #   Meta, Google, Amazon, Netflix, LinkedIn, Microsoft, Apple, Shopify,
-  #   Atlassian, DoorDash (confirmed no public ATS API), Uber (confirmed
-  #   Oracle Recruiting Cloud/HCM via a job posting requiring that skill).
+  #   Amazon, LinkedIn, Atlassian, DoorDash (confirmed no public ATS API),
+  #   Uber (confirmed Oracle Recruiting Cloud/HCM via a job posting
+  #   requiring that skill).
   #   (Clio WAS in this list — turned out to be on Workday after all, just
-  #   under a slug this pass didn't guess; see the Clio entry above.)
+  #   under a slug this pass didn't guess; see the Clio entry above. Meta,
+  #   Google, Netflix, Microsoft, Apple, and Shopify WERE in this list too
+  #   — each has no THIRD-PARTY ATS, but a 2026-09-27 pass found each one's
+  #   own custom career site quietly exposes a real, unauthenticated way to
+  #   read job data server-side — see their entries below under the new
+  #   google/apple/meta/shopify/eightfold ats types.)
   - name: Coinbase
     ats: greenhouse
     slug: coinbase
@@ -949,11 +1009,13 @@ companies:
 
   # Workday — public CXS API, unauthenticated; see ats_clients.fetch_workday's
   # CONFIDENCE NOTE and this file's header comment for the slug format.
-  # Checked and deliberately NOT added: Dell (migrated off Workday to Oracle
-  # HCM — jobs.dell.com now redirects to enterpriseplatform.dell.com/hcmUI);
-  # ServiceNow (couldn't locate their own tenant — every myworkdayjobs.com
-  # hit for "ServiceNow" was a different company's job titled after the
-  # product, not ServiceNow's own board).
+  # Not on Workday (not "not added" — both ARE in this file, just under a
+  # different ats type below): Dell migrated off Workday to Oracle Cloud
+  # Recruiting (jobs.dell.com now redirects to enterpriseplatform.dell.com/
+  # hcmUI) — see its "oraclecloud" entry. ServiceNow's own board couldn't be
+  # found on Workday (every myworkdayjobs.com hit for "ServiceNow" was a
+  # different company's job titled after the product) but turned up on
+  # SmartRecruiters instead — see its "smartrecruiters" entry.
   - name: Adobe
     ats: workday
     slug: adobe.wd5/external_experienced # Senior/Lead Data Engineer, San Francisco/San Jose
@@ -1157,3 +1219,113 @@ companies:
   - name: Nextracker
     ats: workday
     slug: nextracker.wd5/nextpower_careers # total=227 (pod verified: wd5) — Forbes-listed as 'Nextpower'
+
+  # --- Added 2026-09-27: new ATS types for the "checked and NOT added"
+  # companies from the Forbes Global 2000 scan above — every slug below was
+  # verified live end-to-end (list + detail + real job counts) against its
+  # real API on 2026-09-27; see this file's header comment for what each
+  # new ats type/slug format means, and each fetcher's own docstring in
+  # ats_clients.py for exactly how it was reverse-engineered. ---
+
+  # Oracle Fusion Cloud Recruiting
+  - name: Oracle
+    ats: oraclecloud
+    slug: eeho.fa.us2.oraclecloud.com/jobsearch # 2218 open reqs
+  - name: Dell Technologies
+    ats: oraclecloud
+    slug: enterpriseplatform.dell.com/careers # 452 open reqs — migrated off Workday to Oracle Cloud since the earlier Workday pass
+  - name: Texas Instruments
+    ats: oraclecloud
+    slug: edbz.fa.us2.oraclecloud.com/CX # 789 open reqs
+  - name: Emerson Electric
+    ats: oraclecloud
+    slug: hdjq.fa.us2.oraclecloud.com/CX_1 # 1081 open reqs
+  - name: ON Semiconductor
+    ats: oraclecloud
+    slug: hctz.fa.us2.oraclecloud.com/CX_1001 # 740 open reqs
+
+  # SAP SuccessFactors
+  - name: BCE
+    ats: successfactors
+    slug: jobs.bce.ca # 604 postings in the XML feed (spans multiple sub-brand career portals, e.g. Bell/Best Buy Express)
+  - name: Corning
+    ats: successfactors
+    slug: corningjobs.corning.com # 1191 postings
+  - name: Rogers Communications
+    ats: successfactors
+    slug: jobs.rogers.com # 179 postings
+  - name: TELUS
+    ats: successfactors
+    slug: careers.telus.com # 200 postings (TELUS Corporation itself — not the separate TELUS Health/LifeWorks Workday tenant)
+
+  # iCIMS (Attract-branded front-ends only — see header comment)
+  - name: AMD
+    ats: icims
+    slug: careers.amd.com # 1250 open jobs
+  - name: Keysight Technologies
+    ats: icims
+    slug: jobs.keysight.com # 636 open jobs
+
+  # Eightfold
+  - name: Netflix
+    ats: eightfold
+    slug: netflix.eightfold.ai/netflix.com # 484 open jobs
+  - name: Lumen Technologies
+    ats: eightfold
+    slug: careers.lumen.com/lumen.com # search API 403s (tenant-level block) — falls back to /careers/sitemap.xml, 134 real postings confirmed live; 0 matched this repo's Data Engineer filter at check time (telecom infra roles), board itself is real/live
+  - name: Microsoft
+    ats: eightfold
+    slug: apply.careers.microsoft.com/microsoft.com # same sitemap fallback as Lumen — 13 real Data/Data-Platform Engineer matches confirmed live
+
+  # Cornerstone OnDemand (CSOD)
+  - name: MACOM Technology Solutions Holdings
+    ats: cornerstone
+    slug: macomtech/4 # 236 open reqs
+
+  # Avature (pure HTML — no JSON/XML API on this platform)
+  - name: Synopsys
+    ats: avature
+    slug: synopsys # 528 open reqs total, mostly chip-design/verification roles; 1 real Data Engineer match confirmed live
+
+  # HRDepartment ATS (pure HTML — no JSON/XML API on this platform)
+  - name: Sanmina-SCI
+    ats: hrdepartment
+    slug: sanminacareers.mua # 916 open reqs (EMS manufacturing) — 0 matched this repo's Data Engineer filter at check time
+
+  # Custom in-house career sites (see this file's header comment for how
+  # each of these is actually reachable without a third-party ATS)
+  - name: Alphabet
+    ats: google
+    slug: United States
+  - name: Apple
+    ats: apple
+    slug: united-states-USA
+  - name: Shopify
+    ats: shopify
+    slug: shopify # unused by the fetcher itself, but a blank slug parses as YAML null and silently breaks `--company <slug>` debugging (main.py matches by exact slug) — set to something real instead
+  - name: Meta Platforms
+    ats: meta
+    slug: meta # unused by the fetcher itself — see the Shopify entry above for why this still needs a real value
+
+  # Checked and deliberately NOT added:
+  #   - Electronic Arts: its real board (ea.gr8people.com) IS on gr8people,
+  #     which has a real public GraphQL API (see the "gr8people" ats type
+  #     and ats_clients.fetch_gr8people) — but ea.gr8people.com blocks every
+  #     request from this project's own network with an edge-level 403
+  #     (confirmed live 2026-09-27, plain HTML fetch and the GraphQL
+  #     endpoint itself both blocked identically), so it could not be
+  #     verified end-to-end the way everything else in this file was.
+  #     fetch_gr8people IS confirmed working against gr8people's own demo
+  #     tenant (careers.gr8people.com, real data, real job returned) — if
+  #     you can reach ea.gr8people.com from your own network, add:
+  #       - name: Electronic Arts
+  #         ats: gr8people
+  #         slug: ea
+  #     and verify with `python -m app.main --company ea` before trusting it.
+  #   - IBM: careers.ibm.com is hard-blocked by an AWS WAF JS challenge
+  #     (HTTP 202, empty body, every path, every retry); its newer
+  #     www.ibm.com/careers/search page loads fine but ships zero job data
+  #     server-side — everything is rendered by a webpack-content-hashed JS
+  #     bundle whose real filename can't be discovered without executing JS
+  #     in a real browser, behind Akamai Bot Manager on top of that. No
+  #     viable unauthenticated path found.
