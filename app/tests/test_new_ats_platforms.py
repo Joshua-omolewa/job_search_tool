@@ -366,6 +366,70 @@ def test_avature_single_location_field_tenant():
     print("fetch_avature: single-field \"Location\" tenants (not City/Country) resolve too — OK")
 
 
+def test_avature_custom_domain_slug_builds_correct_urls():
+    # Real bug caught live 2026-09-28: EA/BioWare's Avature tenant is
+    # served from a fully custom domain (jobs.ea.com), NOT an
+    # {slug}.avature.net subdomain like every other tenant checked so
+    # far — a slug containing "/" is "{custom-domain}/{locale}" and
+    # drives both the list-page request URL and the detail-page fetch.
+    list_html = (
+        '<article class="article article--result article--non-toggle">'
+        '<a class="link link_result" href="https://jobs.ea.com/en_US/careers/JobDetail/Data-Engineer/1">Data Engineer</a>'
+        "</article>"
+    )
+    detail_html = (
+        '<div class="article__content__view__field">'
+        '<div class="article__content__view__field__label">City</div>'
+        '<div class="article__content__view__field__value">Redwood City</div>'
+        "</div>"
+        '<div class="article__content__view__field">'
+        '<div class="article__content__view__field__label">Country</div>'
+        '<div class="article__content__view__field__value">United States</div>'
+        "</div>"
+        "Job Description and Requirements build data pipelines"
+    )
+    requested_urls = []
+
+    def _get(url, **kwargs):
+        requested_urls.append(url)
+        if "JobDetail" in url:
+            return _resp(text=detail_html)
+        return _resp(text=f"1 results {list_html}")
+
+    with patch("httpx.get", side_effect=_get), \
+         patch("app.filters.title_is_relevant", return_value=True):
+        jobs = ats_clients.fetch_avature("EA", "jobs.ea.com/en_US")
+
+    assert requested_urls[0] == "https://jobs.ea.com/en_US/careers/SearchJobs/"
+    assert len(jobs) == 1
+    assert jobs[0]["url"] == "https://jobs.ea.com/en_US/careers/JobDetail/Data-Engineer/1"
+    print("fetch_avature: custom-domain slug builds correct list+detail URLs — OK")
+
+
+def test_avature_copilot_data_fallback_when_no_field_divs_have_location():
+    # Real bug caught live 2026-09-28: EA/BioWare's detail pages don't
+    # put location in an article__content__view__field div AT ALL (a
+    # differently-shaped block instead) — every field-div label check
+    # (City/Country, Location, Locations, ...) comes up empty. But EA
+    # (and every other Avature tenant checked) also embeds a
+    # `legacyViewCopilotData` JS object with clean Location/City/Country
+    # keys — used here as a fallback. Also checks the stray leading ", "
+    # on EA's real Country value (", India") gets stripped before use.
+    detail_html = (
+        '<div class="article__content__view__field">'
+        '<div class="article__content__view__field__label">Role ID</div>'
+        '<div class="article__content__view__field__value">214164</div>'
+        "</div>"
+        "<script>legacyViewCopilotData = {\"jobs_data\":[{\"Location\":\"Hyderabad\","
+        "\"Country\":\", India\",\"Role ID\":\"214164\"}]};</script>"
+        "Job Description and Requirements build data pipelines"
+    )
+    with patch("httpx.get", return_value=_resp(text=detail_html)):
+        detail = ats_clients._fetch_avature_detail("https://jobs.ea.com/en_US", "/careers/JobDetail/x/214164")
+    assert detail["location"] == "Hyderabad, India"
+    print("fetch_avature: legacyViewCopilotData JSON fallback resolves location, strips stray comma — OK")
+
+
 def test_avature_ungated_job_dropped_for_missing_location():
     list_html = (
         '<article class="article article--result">'

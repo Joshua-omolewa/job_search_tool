@@ -2066,7 +2066,7 @@ def fetch_meta(company_display_name: str, slug: str) -> list[dict]:
 
 
 _AVATURE_RESULT_RE = re.compile(
-    r'<article class="article article--result"[^>]*>.*?<a class="link" href="([^"]+)"[^>]*>\s*([^<]+?)\s*</a>',
+    r'<article class="article article--result[^"]*"[^>]*>.*?<a class="link[^"]*" href="([^"]+)"[^>]*>\s*([^<]+?)\s*</a>',
     re.DOTALL,
 )
 _AVATURE_FIELD_RE = re.compile(
@@ -2075,22 +2075,44 @@ _AVATURE_FIELD_RE = re.compile(
     r'<div class="article__content__view__field__value">\s*([^<]*?)\s*</div>',
     re.DOTALL,
 )
+_AVATURE_COPILOT_DATA_RE = re.compile(r"legacyViewCopilotData\s*=\s*(\{.*?\});", re.DOTALL)
 
 
-def _fetch_avature_detail(tenant: str, path: str) -> dict:
+def _avature_base_url(slug: str) -> str:
+    # Bare tenant name (e.g. "synopsys") -> the usual {tenant}.avature.net
+    # subdomain. A slug containing "/" (e.g. "jobs.ea.com/en_US") -> a
+    # custom domain + locale path prefix — confirmed live 2026-09-28 that
+    # EA/BioWare's Avature portal is served from jobs.ea.com, NOT an
+    # avature.net subdomain at all (a real migration off gr8people, not
+    # just a rename) — the fixed {slug}.avature.net assumption silently
+    # built a wrong URL for this tenant.
+    if "/" in slug:
+        domain, _, locale = slug.partition("/")
+        return f"https://{domain}/{locale}"
+    return f"https://{slug}.avature.net"
+
+
+def _fetch_avature_detail(base_url: str, path: str) -> dict:
     """Avature has no JSON API at all — the job-detail page is plain
     server-rendered HTML with a consistent label/value div structure per
-    field, but the LABELS a given tenant uses for location are not
-    standardized: Synopsys splits it into separate "City"/"Country"
-    fields, Bloomberg uses one combined "Location" field instead
-    (confirmed live on both, real postings) — checking only City/Country
-    silently produced an empty location, and therefore no fetched job at
-    all, for every Bloomberg posting. Falls back through several known
-    label spellings rather than assuming one tenant's shape is universal.
-    Best-effort: any parse failure means an empty description, same as
-    every other detail fetch here."""
+    field, but the LABELS (and even the div structure itself) a given
+    tenant uses for location are not standardized: Synopsys splits it
+    into separate "City"/"Country" fields, Bloomberg uses one combined
+    "Location" field instead (confirmed live on both, real postings) —
+    checking only City/Country silently produced an empty location, and
+    therefore no fetched job at all, for every Bloomberg posting. EA/
+    BioWare goes further still: its location isn't in a
+    article__content__view__field div AT ALL (a differently-shaped
+    "field--locations" block instead) — but every tenant checked so far
+    (EA, Synopsys, Bloomberg) also embeds a `legacyViewCopilotData`
+    JS object with clean Location/City/Country keys, used here as a
+    fallback when the div-based fields come up empty. Note EA's Country
+    value in that blob has a stray leading ", " (e.g. ", India") baked
+    into the source data itself, not a template artifact — stripped
+    before use. Best-effort throughout: any parse failure means an empty
+    description, same as every other detail fetch here."""
     try:
-        resp = httpx.get(f"https://{tenant}.avature.net{path}", headers={"User-Agent": USER_AGENT}, timeout=TIMEOUT)
+        resp = httpx.get(f"{base_url}{path}", headers={"User-Agent": USER_AGENT}, timeout=TIMEOUT)
         resp.raise_for_status()
         fields = {label.strip(): value.strip() for label, value in _AVATURE_FIELD_RE.findall(resp.text)}
         city, country = fields.get("City", ""), fields.get("Country", "")
@@ -2100,6 +2122,23 @@ def _fetch_avature_detail(tenant: str, path: str) -> dict:
                 if fields.get(key):
                     location = fields[key]
                     break
+        if not location:
+            m = _AVATURE_COPILOT_DATA_RE.search(resp.text)
+            if m:
+                try:
+                    jobs_data = (json.loads(m.group(1)).get("jobs_data") or [{}])[0]
+                    # City/Location aren't both populated on any tenant seen
+                    # so far — prefer City (Synopsys shape) and fall back to
+                    # Location (Bloomberg/EA shape) as the "primary" part,
+                    # then append Country if present (EA has BOTH a
+                    # city-only Location AND a separate Country — Bloomberg
+                    # has no Country key at all, just a self-contained
+                    # Location).
+                    primary = jobs_data.get("City") or jobs_data.get("Location") or ""
+                    country = (jobs_data.get("Country") or "").strip(", ").strip()
+                    location = ", ".join(p for p in (primary, country) if p)
+                except Exception:
+                    pass
         # Starts from the first field block rather than the "Job
         # Description" label specifically: some custom fields (e.g. a
         # "Base Salary Range: $X - $Y" block, confirmed live on a real
@@ -2125,21 +2164,27 @@ _AVATURE_DETAIL_WORKERS = 6
 def fetch_avature(company_display_name: str, slug: str) -> list[dict]:
     # Avature career portals have no public JSON/XML API of any kind — pure
     # server-rendered HTML, confirmed live 2026-09-27 against Synopsys (528
-    # open postings). `slug` is just the tenant subdomain (e.g. "synopsys"
-    # for synopsys.avature.net). List pages have title/URL/job-ID/posted-
-    # date but no location — that only lives on the per-job detail page, so
-    # (unlike most fetchers here) every candidate needs a detail fetch to
-    # even know its location, not just its description.
+    # open postings). `slug` is either just the tenant subdomain (e.g.
+    # "synopsys" for synopsys.avature.net) or, for a tenant on a fully
+    # custom domain (e.g. EA/BioWare's jobs.ea.com — confirmed live
+    # 2026-09-28), "{custom-domain}/{locale}" — see _avature_base_url.
+    # List pages have title/URL/job-ID/posted-date but no location — that
+    # only lives on the per-job detail page, so (unlike most fetchers
+    # here) every candidate needs a detail fetch to even know its
+    # location, not just its description.
     # jobRecordsPerPage is accepted but silently ignored — confirmed live
-    # 2026-09-27 that requesting 100 still only returns 6 records per call,
-    # so this has to be treated as a genuinely fixed page size and paged
-    # (concurrently) by real 6-record steps, not a tunable one.
+    # 2026-09-27/28 that requesting 100 still only returns a fixed number
+    # of records per call (6 for Synopsys, 12 for Bloomberg, 20 for EA —
+    # varies per tenant, not just always 6), so this has to be treated as
+    # a genuinely fixed page size and paged (concurrently) off the real
+    # total, not a tunable one.
     page_size = 6
+    base_url = _avature_base_url(slug)
     seen_urls = set()
 
     def _fetch_list_page(offset: int) -> list[dict]:
         resp = httpx.get(
-            f"https://{slug}.avature.net/careers/SearchJobs/",
+            f"{base_url}/careers/SearchJobs/",
             params={"jobRecordsPerPage": page_size, "jobOffset": offset},
             headers={"User-Agent": USER_AGENT},
             timeout=TIMEOUT,
@@ -2182,12 +2227,14 @@ def fetch_avature(company_display_name: str, slug: str) -> list[dict]:
                 _extract(html_text)
 
     pending_detail = [
-        (i, j["url"].removeprefix(f"https://{slug}.avature.net"))
+        (i, j["url"].removeprefix(base_url))
         for i, j in enumerate(jobs) if filters.title_is_relevant(j["title"])
     ]
     if pending_detail:
         with ThreadPoolExecutor(max_workers=_AVATURE_DETAIL_WORKERS) as pool:
-            future_to_index = {pool.submit(_fetch_avature_detail, slug, path): idx for idx, path in pending_detail}
+            future_to_index = {
+                pool.submit(_fetch_avature_detail, base_url, path): idx for idx, path in pending_detail
+            }
             for future in as_completed(future_to_index):
                 idx = future_to_index[future]
                 detail = future.result()

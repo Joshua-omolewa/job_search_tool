@@ -1407,21 +1407,25 @@ companies:
     ats: meta
     slug: meta # unused by the fetcher itself — see the Shopify entry above for why this still needs a real value
 
+  - name: Electronic Arts
+    ats: avature
+    # CORRECTION 2026-09-28: EA's board is no longer on gr8people at all —
+    # ea.gr8people.com (which blocked every request from this project's
+    # own network) has been fully migrated to Avature, served from a
+    # custom domain (jobs.ea.com), not the usual {tenant}.avature.net
+    # pattern — required generalizing fetch_avature to accept a custom
+    # domain (see _avature_base_url). Confirmed live: plain httpx GET
+    # works, zero bot-wall, 338 total postings across all EA studios.
+    # This also resolves the separately-investigated "BioWare" entry —
+    # BioWare is one EA studio among several on this SAME shared board
+    # (no separate tenant), so a real BioWare posting surfaces here under
+    # the "Electronic Arts" company name rather than as its own entry —
+    # a second entry pointed at the identical board would just double
+    # the fetch every run (dedup.py's URL-based dedup would collapse the
+    # resulting duplicate rows anyway, so no functional gain either way).
+    slug: jobs.ea.com/en_US
+
   # Checked and deliberately NOT added:
-  #   - Electronic Arts: its real board (ea.gr8people.com) IS on gr8people,
-  #     which has a real public GraphQL API (see the "gr8people" ats type
-  #     and ats_clients.fetch_gr8people) — but ea.gr8people.com blocks every
-  #     request from this project's own network with an edge-level 403
-  #     (confirmed live 2026-09-27, plain HTML fetch and the GraphQL
-  #     endpoint itself both blocked identically), so it could not be
-  #     verified end-to-end the way everything else in this file was.
-  #     fetch_gr8people IS confirmed working against gr8people's own demo
-  #     tenant (careers.gr8people.com, real data, real job returned) — if
-  #     you can reach ea.gr8people.com from your own network, add:
-  #       - name: Electronic Arts
-  #         ats: gr8people
-  #         slug: ea
-  #     and verify with `python -m app.main --company ea` before trusting it.
   #   - IBM WAS in this list too — careers.ibm.com itself is still
   #     hard-blocked by an AWS WAF JS challenge (HTTP 202, empty body,
   #     every path, INCLUDING the per-job detail page, so no full
