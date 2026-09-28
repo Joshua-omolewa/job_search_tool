@@ -675,10 +675,11 @@ def test_all_new_ats_types_wired_into_fetchers():
         "atlassian": ats_clients.fetch_atlassian,
         "kula": ats_clients.fetch_kula,
         "ukg_ultipro": ats_clients.fetch_ukg_ultipro,
+        "humi_platform": ats_clients.fetch_humi_platform,
     }
     for ats_type, fn in expected.items():
         assert ats_clients.FETCHERS[ats_type] is fn
-    print("FETCHERS: all 18 new ATS types wired in correctly — OK")
+    print("FETCHERS: all 19 new ATS types wired in correctly — OK")
 
 
 # --------------------------------------------------------------------- uber
@@ -878,6 +879,58 @@ def test_ukg_ultipro_dedupes_by_id():
         jobs = ats_clients.fetch_ukg_ultipro("MDA Space", "host/tenant/guid")
     assert len(jobs) == 1
     print("fetch_ukg_ultipro: dedupes by Id — OK")
+
+
+# ------------------------------------------------------------------ humi_platform
+
+def test_humi_platform_basic_parsing_via_json_ld_detail():
+    # Shape trimmed from real live pages (2026-09-28): list page is
+    # ecopiatech.applytojobs.ca/v1/embedded (plain SSR HTML, title+url
+    # only), detail page embeds a real schema.org JobPosting JSON-LD
+    # block with STRUCTURED jobLocation/baseSalary — a much more
+    # reliable source than splitting the list page's combined location/
+    # type/date text blob. A non-relevant title ("General: Want to join
+    # us?") should never trigger a detail fetch and gets dropped for
+    # having no location, same gating as fetch_avature.
+    list_html = '''
+    <section class="humi-job-board-postings">
+        <div class="humi-job-board-posting">
+            <h3 class="humi-job-board-posting-title">
+                <a href="https://ecopiatech.applytojobs.ca/talent/50826" target="_blank">General: Want to join us? Apply here!</a>
+            </h3>
+        </div>
+        <div class="humi-job-board-posting">
+            <h3 class="humi-job-board-posting-title">
+                <a href="https://ecopiatech.applytojobs.ca/engineering/50825" target="_blank">Senior Data Platform Engineer</a>
+            </h3>
+        </div>
+    </section>
+    '''
+    detail_html = '''<script type="application/ld+json">
+    {"title": "Senior Data Platform Engineer", "datePosted": "2026-09-09T16:09:54+00:00",
+     "description": "&lt;div&gt;Build the data platform.&lt;/div&gt;",
+     "baseSalary": {"@type": "MonetaryAmount", "minValue": 100000, "maxValue": 150000, "unitText": "YEAR"},
+     "jobLocation": {"address": {"addressLocality": "Toronto", "addressRegion": "Ontario", "addressCountry": "Canada"}}}
+    </script>'''
+    with patch("httpx.get", side_effect=[_resp(text=list_html), _resp(text=detail_html)]):
+        jobs = ats_clients.fetch_humi_platform("Ecopia AI", "ecopiatech")
+
+    assert len(jobs) == 1
+    j = jobs[0]
+    assert j["title"] == "Senior Data Platform Engineer"
+    assert j["location"] == "Toronto, Ontario, Canada"
+    assert j["url"] == "https://ecopiatech.applytojobs.ca/engineering/50825"
+    assert j["posted_at"] == "2026-09-09T16:09:54+00:00"
+    assert "Build the data platform" in j["description"]
+    assert j["salary"] == "100,000–150,000/year"
+    print("fetch_humi_platform: JSON-LD detail parsing, non-relevant title dropped — OK")
+
+
+def test_humi_platform_detail_fetch_failure_degrades_to_empty():
+    with patch("httpx.get", side_effect=Exception("boom")):
+        result = ats_clients._fetch_humi_platform_detail("https://ecopiatech.applytojobs.ca/engineering/99999")
+    assert result == {"location": "", "posted_at": None, "description": "", "salary": None}
+    print("_fetch_humi_platform_detail: request failure -> empty dict, no crash — OK")
 
 
 # ------------------------------------------------------------------------ ibm

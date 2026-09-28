@@ -4,6 +4,7 @@
 #   | "oraclecloud" | "successfactors" | "icims" | "eightfold" | "cornerstone"
 #   | "avature" | "hrdepartment" | "gr8people" | "google" | "apple" | "shopify"
 #   | "meta" | "amazon" | "ibm" | "uber" | "atlassian" | "kula" | "ukg_ultipro"
+#   | "humi_platform"
 # slug: the identifier used in that ATS's public API URL
 #   - workday is the odd one out: slug is "{tenant}.wd{N}/{site}", read off
 #     the company's careers URL — e.g.
@@ -150,6 +151,16 @@
 #     BriefDescription teaser (avg ~400 chars) — the real per-job detail
 #     page is client-rendered (knockout.js, no SSR data), not worth
 #     reverse-engineering for a teaser-only gain.
+#   - humi_platform's slug is the account subdomain of the company's
+#     hosted careers page, e.g. "ecopiatech" for
+#     ecopiatech.applytojobs.ca — added 2026-09-28, found via network
+#     capture on ecopiatech.com/careers. This is Humi-as-a-platform, a
+#     white-label hosted-careers-page product other companies embed —
+#     NOT the same thing as Humi Inc.'s own careers page (see the "Humi"
+#     entry below, which is on Workable). Every job's detail page embeds
+#     a real schema.org JobPosting JSON-LD block with structured
+#     location AND salary fields — a better data source than most other
+#     ATS types in this file, not just a fallback.
 #
 # The list below is the original author's real target list (Alberta/Canada
 # tech companies), kept as-is as a working example of the format. Add or
@@ -1784,6 +1795,14 @@ companies:
     # applogicnetworks.com/company/careers (sandvine.com/careers redirects
     # to the bare homepage instead). Confirmed live 2026-09-28, 11 jobs,
     # zero auth.
+  - name: Ecopia AI
+    ats: humi_platform
+    slug: ecopiatech # real domain is ecopiatech.com; careers page runs on
+    # Humi-as-a-platform (a white-label hosted-careers-page product, NOT
+    # the same as Humi Inc.'s own Workable-hosted board below) — confirmed
+    # live 2026-09-28, 2 postings, zero auth. Neither is Data-Engineer-
+    # shaped right now (a generic "want to join us" posting + Frontend
+    # Engineer) — a real current state, not a bug.
 
   # --- Added 2026-09-28: SpaceX — found via a user-supplied
   # spacex.com/careers/jobs link; the site's own careers page pulls from

@@ -2820,6 +2820,90 @@ def fetch_ukg_ultipro(company_display_name: str, slug: str) -> list[dict]:
     return jobs
 
 
+_HUMI_POSTING_RE = re.compile(
+    r'<div class="humi-job-board-posting">\s*'
+    r'<h3 class="humi-job-board-posting-title">\s*'
+    r'<a href="([^"]+)"[^>]*>\s*([^<]+?)\s*</a>',
+    re.DOTALL,
+)
+_HUMI_JSON_LD_RE = re.compile(r'<script type="application/ld\+json">\s*(\{.*?\})\s*</script>', re.DOTALL)
+_HUMI_DETAIL_WORKERS = 6
+
+
+def _fetch_humi_platform_detail(url: str) -> dict:
+    # Every Humi-hosted job detail page embeds a real schema.org
+    # JobPosting JSON-LD block — confirmed live 2026-09-28 against
+    # Ecopia AI — with STRUCTURED jobLocation and baseSalary fields, a
+    # much more reliable source than trying to split the list page's
+    # combined "City, Region, Country  employment_type  Month D, YYYY"
+    # text blob. `description` in the JSON-LD is itself HTML, but
+    # double-encoded (HTML entities inside a JSON string) so needs
+    # html.unescape() before strip_html can do anything useful with it.
+    try:
+        resp = httpx.get(url, headers={"User-Agent": USER_AGENT}, timeout=TIMEOUT)
+        resp.raise_for_status()
+        m = _HUMI_JSON_LD_RE.search(resp.text)
+        if not m:
+            return {"location": "", "posted_at": None, "description": "", "salary": None}
+        data = json.loads(m.group(1))
+        addr = (data.get("jobLocation") or {}).get("address") or {}
+        location = ", ".join(
+            p for p in (addr.get("addressLocality"), addr.get("addressRegion"), addr.get("addressCountry")) if p
+        )
+        description = filters.strip_html(html.unescape(data.get("description") or ""))
+        salary_info = data.get("baseSalary") or {}
+        salary = _format_money_range(
+            salary_info.get("minValue"), salary_info.get("maxValue"),
+            salary_info.get("currency"), (salary_info.get("unitText") or "").lower() or None,
+        ) or _extract_salary_from_text(description)
+        return {"location": location, "posted_at": data.get("datePosted"), "description": description, "salary": salary}
+    except Exception:
+        return {"location": "", "posted_at": None, "description": "", "salary": None}
+
+
+def fetch_humi_platform(company_display_name: str, slug: str) -> list[dict]:
+    # Humi as a platform product (distinct from Humi Inc.'s own
+    # Workable-hosted careers page, a separate "humi" company entry
+    # elsewhere in this file) — a white-label hosted-careers-page
+    # product other companies embed. Confirmed live 2026-09-28 against
+    # Ecopia AI (ecopiatech.applytojobs.ca). `slug` is the account
+    # subdomain, e.g. "ecopiatech" for ecopiatech.applytojobs.ca. The
+    # list page is plain SSR HTML (works with a bare httpx GET, no JS
+    # needed) but only has title+URL — location/date/salary/description
+    # all come from a per-job detail-page fetch (gated on title
+    # relevance, same pattern as Avature/Rippling elsewhere here).
+    resp = httpx.get(
+        f"https://{slug}.applytojobs.ca/v1/embedded", headers={"User-Agent": USER_AGENT}, timeout=TIMEOUT,
+    )
+    resp.raise_for_status()
+
+    jobs = []
+    seen_urls = set()
+    for url, title in _HUMI_POSTING_RE.findall(resp.text):
+        if url in seen_urls:
+            continue
+        seen_urls.add(url)
+        jobs.append({
+            "company": company_display_name, "title": title.strip(), "location": "",
+            "url": url, "posted_at": None, "description": "", "salary": None,
+        })
+
+    pending = [i for i, j in enumerate(jobs) if filters.title_is_relevant(j["title"])]
+    if pending:
+        with ThreadPoolExecutor(max_workers=_HUMI_DETAIL_WORKERS) as pool:
+            future_to_index = {pool.submit(_fetch_humi_platform_detail, jobs[i]["url"]): i for i in pending}
+            for future in as_completed(future_to_index):
+                idx = future_to_index[future]
+                detail = future.result()
+                jobs[idx].update(detail)
+
+    # Same reasoning as fetch_avature: a job whose title didn't look
+    # relevant never gets a location fetched at all and would
+    # incorrectly fail location_is_allowed downstream — drop those
+    # ungated rows here instead of shipping them with a blank location.
+    return [j for j in jobs if j["location"]]
+
+
 FETCHERS = {
     "greenhouse": fetch_greenhouse,
     "ashby": fetch_ashby,
@@ -2849,6 +2933,7 @@ FETCHERS = {
     "atlassian": fetch_atlassian,
     "kula": fetch_kula,
     "ukg_ultipro": fetch_ukg_ultipro,
+    "humi_platform": fetch_humi_platform,
 }
 
 
