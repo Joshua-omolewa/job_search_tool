@@ -19,6 +19,7 @@ import xml.etree.ElementTree as ET
 import httpx
 
 from app import filters
+from app import playwright_lock
 
 USER_AGENT = "job-search-pipeline/0.1 (personal use)"
 TIMEOUT = 20.0
@@ -156,7 +157,14 @@ def fetch_via_browser(url: str, timeout_ms: int = 20000) -> str | None:
         return None
 
     try:
-        with sync_playwright() as p:
+        # Playwright's sync API isn't safe for concurrent use across
+        # threads (confirmed live 2026-09-28 — see playwright_lock.py).
+        # This fallback can fire many times within one fetch_adzuna call
+        # (once per gated job), across up to 4 concurrent Adzuna entries
+        # in aggregators.yaml — the lock confines all of that, plus
+        # fetch_uber/fetch_indeed's own Playwright usage, to one browser
+        # session at a time, globally.
+        with playwright_lock.PLAYWRIGHT_LOCK, sync_playwright() as p:
             browser = p.chromium.launch(headless=True)
             try:
                 page = browser.new_page(user_agent=USER_AGENT)
@@ -660,7 +668,11 @@ def fetch_indeed(params: dict) -> list[dict]:
 
     jobs = []
     try:
-        with sync_playwright() as p:
+        # Playwright's sync API isn't safe for concurrent use across
+        # threads (confirmed live 2026-09-28 — see playwright_lock.py) —
+        # held for this whole fetch so it never overlaps with another
+        # Indeed entry's own fetch, or ats_clients.fetch_uber's.
+        with playwright_lock.PLAYWRIGHT_LOCK, sync_playwright() as p:
             browser = p.chromium.launch(headless=True)
             try:
                 page = browser.new_page(user_agent=USER_AGENT)

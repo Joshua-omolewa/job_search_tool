@@ -815,6 +815,24 @@ def test_all_new_ats_types_wired_into_fetchers():
     print("FETCHERS: all 21 new ATS types wired in correctly — OK")
 
 
+# ------------------------------------------------------------ playwright_lock
+
+def test_playwright_lock_is_shared_across_modules():
+    # Real bug this guards against: if ats_clients.py and
+    # aggregator_clients.py each imported/created their OWN lock instead
+    # of sharing app.playwright_lock.PLAYWRIGHT_LOCK, fetch_uber and
+    # fetch_indeed could still run Playwright concurrently with each
+    # other — the whole point of the lock (confirmed live 2026-09-28:
+    # concurrent Playwright usage across threads visibly serialized/
+    # stalled a real run) would be silently defeated.
+    from app import aggregator_clients, playwright_lock
+    import threading
+    assert isinstance(playwright_lock.PLAYWRIGHT_LOCK, type(threading.Lock()))
+    assert ats_clients.playwright_lock.PLAYWRIGHT_LOCK is playwright_lock.PLAYWRIGHT_LOCK
+    assert aggregator_clients.playwright_lock.PLAYWRIGHT_LOCK is playwright_lock.PLAYWRIGHT_LOCK
+    print("playwright_lock: same lock instance shared by both modules — OK")
+
+
 # --------------------------------------------------------------------- uber
 
 def test_uber_missing_playwright_degrades_gracefully():

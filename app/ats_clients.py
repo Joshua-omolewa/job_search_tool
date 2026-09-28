@@ -160,6 +160,7 @@ from datetime import datetime, timezone
 import httpx
 
 from app import filters
+from app import playwright_lock
 
 USER_AGENT = "job-search-pipeline/0.1 (personal use)"
 TIMEOUT = 20.0
@@ -2652,7 +2653,11 @@ def fetch_uber(company_display_name: str, slug: str) -> list[dict]:
     pages_bodies = []
 
     try:
-        with sync_playwright() as p:
+        # Playwright's sync API isn't safe for concurrent use across
+        # threads (confirmed live 2026-09-28 — see playwright_lock.py) —
+        # held for this whole fetch so it never overlaps with
+        # aggregator_clients.fetch_indeed's own Playwright usage either.
+        with playwright_lock.PLAYWRIGHT_LOCK, sync_playwright() as p:
             browser = p.chromium.launch(headless=True)
             try:
                 page = browser.new_page(user_agent=USER_AGENT)
