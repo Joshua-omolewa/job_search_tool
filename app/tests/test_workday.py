@@ -112,6 +112,41 @@ def test_total_aware_pagination_fetches_remaining_pages_concurrently():
     print("fetch_workday: total-aware pagination fetches remaining pages concurrently, in order — OK")
 
 
+def test_total_equal_to_page_size_returns_page_one_without_second_request():
+    # Real bug caught live 2026-09-28: BlackBerry QNX's board has exactly
+    # total=20=page-size real postings. `len(first_page) < limit` alone
+    # (20 < 20) is False, so this used to fall through into the
+    # sequential-walk fallback for a second page THAT DOESN'T EXIST —
+    # and that tenant's API doesn't return an empty/short page for an
+    # out-of-range offset, it just re-serves page 1 forever, turning this
+    # into a genuine infinite loop that stalled an entire run for 25+
+    # minutes. `total` should now short-circuit this before ever
+    # requesting a second page.
+    page1 = [_posting(external_path=f"/job/JR{i}") for i in range(20)]
+    with patch("httpx.post", return_value=_list_resp(page1, total=20)) as mock_post, \
+         patch("app.filters.title_is_relevant", return_value=False):
+        jobs = ats_clients.fetch_workday("Acme", SLUG)
+    assert len(jobs) == 20
+    assert mock_post.call_count == 1  # no second page requested at all
+    print("fetch_workday: total == page size stops after page 1, no infinite loop — OK")
+
+
+def test_fallback_walk_stops_at_page_cap_when_server_never_shrinks():
+    # Defense-in-depth for the same class of bug as above, for a tenant
+    # where `total` itself is unusable (None) AND the server keeps
+    # re-serving a full page forever regardless of offset — the walk
+    # must still terminate via the hard page cap rather than loop
+    # forever if some other tenant has this same quirk.
+    page = [_posting(external_path=f"/job/JR{i}") for i in range(20)]
+    with patch("httpx.post", return_value=_list_resp(page, total=None)) as mock_post, \
+         patch("app.filters.title_is_relevant", return_value=False), \
+         patch("app.ats_clients._WORKDAY_FALLBACK_PAGE_CAP", 3):
+        jobs = ats_clients.fetch_workday("Acme", SLUG)
+    assert mock_post.call_count == 4  # 1 initial + 3 capped loop iterations — bounded, not infinite
+    assert len(jobs) == 80  # 4 pages * 20, duplicates and all — cap firing is what matters here
+    print("fetch_workday: fallback walk stops at the page cap instead of looping forever — OK")
+
+
 def test_empty_page_stops_immediately():
     with patch("httpx.post", return_value=_list_resp([])) as mock_post:
         jobs = ats_clients.fetch_workday("Acme", SLUG)

@@ -168,6 +168,10 @@ TIMEOUT = 20.0
 _MULTI_LOCATION_RE = re.compile(r"^\d+\s+Locations?$", re.IGNORECASE)
 
 
+_MAX_RETRY_DELAY = 15.0  # seconds — see _request_with_retry's Retry-After note
+_MAX_TOTAL_RETRY_BUDGET = 60.0  # seconds — hard ceiling on time spent backing off
+
+
 def _request_with_retry(method: str, url: str, max_retries: int = 4, **kwargs) -> httpx.Response:
     """A 429 is a transient, recoverable condition (the server explicitly
     saying "back off"), not a real failure — retries with exponential
@@ -181,19 +185,32 @@ def _request_with_retry(method: str, url: str, max_retries: int = 4, **kwargs) -
     status (4xx/5xx) is NOT retried — those are real errors, not backoff
     signals, and every caller here already treats a raised exception as
     a normal "skip this posting/company" outcome via its own try/except.
-    """
+
+    Retry-After is capped at _MAX_RETRY_DELAY rather than trusted as-is —
+    a real bug caught live 2026-09-28: BlackBerry QNX's Workday tenant
+    (only 19 total postings — should be near-instant) stalled a whole
+    companies-only run for 25+ minutes with a worker thread genuinely
+    blocked on network I/O the entire time, almost certainly this exact
+    tenant rate-limiting hard after the earlier concurrent-load runs and
+    sending back a very large Retry-After. A cumulative budget
+    (_MAX_TOTAL_RETRY_BUDGET) is also enforced across all attempts, on
+    top of the per-attempt cap, so one call can't rack up an effectively
+    unbounded wait even via several capped-but-still-large delays."""
     # Dispatches to httpx.get/httpx.post (NOT httpx.request) specifically
     # so this is a drop-in replacement at every existing call site — every
     # test in this project mocks the module-level httpx.get/httpx.post
     # functions directly (patch("httpx.get", ...)), not httpx.request.
     request_fn = getattr(httpx, method.lower())
     resp = None
+    total_slept = 0.0
     for attempt in range(max_retries + 1):
         resp = request_fn(url, **kwargs)
-        if resp.status_code == 429 and attempt < max_retries:
+        if resp.status_code == 429 and attempt < max_retries and total_slept < _MAX_TOTAL_RETRY_BUDGET:
             retry_after = resp.headers.get("Retry-After", "")
             delay = float(retry_after) if retry_after.replace(".", "", 1).isdigit() else (2 ** attempt)
-            time.sleep(delay + random.uniform(0, 0.5))
+            delay = min(delay, _MAX_RETRY_DELAY) + random.uniform(0, 0.5)
+            time.sleep(delay)
+            total_slept += delay
             continue
         break
     resp.raise_for_status()
@@ -645,6 +662,7 @@ def _fetch_workday_detail(base_url: str, external_path: str) -> dict:
 
 _WORKDAY_DETAIL_WORKERS = 8  # bounded so a big board doesn't hammer the tenant's API
 _WORKDAY_LIST_WORKERS = 8
+_WORKDAY_FALLBACK_PAGE_CAP = 500  # 500 * 20/page = 10,000 postings — real safety net, see below
 
 
 def _fetch_workday_page(base: str, offset: int, limit: int) -> list[dict]:
@@ -677,16 +695,30 @@ def _fetch_all_workday_postings(base: str) -> list[dict]:
     )
     first_page_json = resp.json()
     first_page = first_page_json.get("jobPostings", [])
-    if len(first_page) < limit:
-        return first_page  # everything fit on page 1
-
     total = first_page_json.get("total")
+    if len(first_page) < limit or (isinstance(total, int) and len(first_page) >= total):
+        # Everything fit on page 1 — either the page came back short, or
+        # `total` itself says so. The second check is the one that
+        # actually matters when a board's real job count is an EXACT
+        # multiple of the page size (confirmed live 2026-09-28:
+        # BlackBerry QNX had exactly total=20=limit, so `len(first_page)
+        # < limit` alone was false — it fell through into the sequential-
+        # walk fallback below for a SECOND page that didn't need to be
+        # fetched at all).
+        return first_page[:total] if isinstance(total, int) else first_page
+
     if not isinstance(total, int) or total <= limit:
         # Unknown or inconsistent total — fall back to the safe sequential
-        # walk (identical to the pre-optimization behavior).
+        # walk (identical to the pre-optimization behavior). Capped at a
+        # sane number of pages as defense-in-depth: confirmed live
+        # 2026-09-28 that BlackBerry QNX's tenant doesn't return an empty
+        # (or even short) page for an out-of-range offset — it just
+        # re-serves the same first page forever — which turned this into
+        # a genuine infinite loop, not a hypothetical one, and stalled an
+        # entire run for 25+ minutes on what should be a 20-job board.
         postings = list(first_page)
         offset = limit
-        while True:
+        for _ in range(_WORKDAY_FALLBACK_PAGE_CAP):
             page = _fetch_workday_page(base, offset, limit)
             if not page:
                 break

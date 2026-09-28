@@ -78,6 +78,42 @@ def test_request_with_retry_respects_retry_after_header():
     print("_request_with_retry: honors Retry-After header — OK")
 
 
+def test_request_with_retry_caps_a_large_retry_after():
+    # Real bug caught live 2026-09-28: BlackBerry QNX's Workday tenant
+    # (only 19 total postings) stalled a whole companies-only run for
+    # 25+ minutes — almost certainly this tenant sending back a very
+    # large Retry-After after the earlier heavy concurrent load, honored
+    # uncapped. A server-sent value now gets clamped to _MAX_RETRY_DELAY.
+    resp_429 = _resp(status_code=429)
+    resp_429.headers = {"Retry-After": "1800"}  # 30 minutes
+    responses = [resp_429, _resp(json_data={"ok": True}, status_code=200)]
+    with patch("httpx.get", side_effect=responses), \
+         patch("app.ats_clients.time.sleep") as mock_sleep:
+        ats_clients._request_with_retry("GET", "https://example.com/jobs")
+    slept_for = mock_sleep.call_args.args[0]
+    assert slept_for < ats_clients._MAX_RETRY_DELAY + 0.5
+    print("_request_with_retry: caps an oversized Retry-After — OK")
+
+
+def test_request_with_retry_stops_after_cumulative_budget_exhausted():
+    # Even with every individual delay capped, several capped-but-still-
+    # large delays in a row could still add up to a long wait — this
+    # checks the cumulative budget cuts retries short regardless.
+    resp_429 = _resp(status_code=429)
+    resp_429.headers = {"Retry-After": str(ats_clients._MAX_RETRY_DELAY)}
+    with patch("httpx.get", return_value=resp_429) as mock_get, \
+         patch("app.ats_clients.time.sleep"):
+        try:
+            # max_retries=10 would allow up to 11 calls on its own — the
+            # cumulative budget should cut this off well before that.
+            ats_clients._request_with_retry("GET", "https://example.com/jobs", max_retries=10)
+            assert False, "expected an exception"
+        except Exception:
+            pass
+    assert mock_get.call_count < 11
+    print("_request_with_retry: cumulative retry budget cuts off retries — OK")
+
+
 def test_request_with_retry_exhausts_retries_and_raises():
     with patch("httpx.get", return_value=_resp(status_code=429)) as mock_get, \
          patch("app.ats_clients.time.sleep"):
