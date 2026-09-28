@@ -2699,6 +2699,65 @@ def fetch_atlassian(company_display_name: str, slug: str) -> list[dict]:
     return jobs
 
 
+_KULA_PAGE_SIZE = 99
+
+
+def fetch_kula(company_display_name: str, slug: str) -> list[dict]:
+    # Kula.ai is a generic hosted-careers-page product — confirmed live
+    # 2026-09-28 against Vidyard (careers.kula.ai/vidyard), found via
+    # network capture on vidyard.com/careers/. `slug` is the Kula
+    # accountName (the vanity path segment, e.g. "vidyard" for
+    # careers.kula.ai/vidyard) — this same endpoint pattern is reusable
+    # for any other Kula-hosted company, just swap accountName. No
+    # separate detail fetch needed: ats_job.job_description is the full
+    # HTML description, included in the same list response. No
+    # structured salary field anywhere in the payload — only the
+    # free-text fallback applies. Apply URL is NOT in the API response;
+    # constructed as careers.kula.ai/{accountName}/{id}-{slug(title)},
+    # verified against the real site's own rendered anchor hrefs.
+    def _fetch_page(page: int) -> tuple[list, int]:
+        resp = httpx.get(
+            "https://careers.kula.ai/api/internal/ats_job_posts",
+            params={"accountName": slug, "page": page, "type": "ats_job_post.index", "items": _KULA_PAGE_SIZE},
+            headers={"User-Agent": USER_AGENT, "Accept": "application/json"},
+            timeout=TIMEOUT,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        meta = data.get("meta") or {}
+        return data.get("data") or [], meta.get("pages") or 1
+
+    first_page, total_pages = _fetch_page(1)
+    all_postings = list(first_page)
+    if total_pages > 1:
+        with ThreadPoolExecutor(max_workers=6) as pool:
+            for page_postings, _ in pool.map(_fetch_page, range(2, total_pages + 1)):
+                all_postings.extend(page_postings)
+
+    jobs = []
+    seen_ids = set()
+    for p in all_postings:
+        job_id = p.get("id")
+        title = p.get("title", "")
+        if not job_id or not title or job_id in seen_ids:
+            continue
+        seen_ids.add(job_id)
+        ats_job = p.get("ats_job") or {}
+        offices = ats_job.get("offices") or []
+        location = "; ".join(o.get("location") or o.get("name") or "" for o in offices if o)
+        description = filters.strip_html(ats_job.get("job_description") or "")
+        jobs.append({
+            "company": company_display_name,
+            "title": title,
+            "location": location,
+            "url": f"https://careers.kula.ai/{slug}/{job_id}-{_shopify_slugify(title)}",
+            "posted_at": p.get("launch_at"),
+            "description": description,
+            "salary": _extract_salary_from_text(description),
+        })
+    return jobs
+
+
 FETCHERS = {
     "greenhouse": fetch_greenhouse,
     "ashby": fetch_ashby,
@@ -2726,6 +2785,7 @@ FETCHERS = {
     "ibm": fetch_ibm,
     "uber": fetch_uber,
     "atlassian": fetch_atlassian,
+    "kula": fetch_kula,
 }
 
 

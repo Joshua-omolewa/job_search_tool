@@ -3,7 +3,7 @@
 #   | "workday" | "bamboohr" | "rippling" | "teamtailor" | "gem"
 #   | "oraclecloud" | "successfactors" | "icims" | "eightfold" | "cornerstone"
 #   | "avature" | "hrdepartment" | "gr8people" | "google" | "apple" | "shopify"
-#   | "meta" | "amazon" | "ibm" | "uber" | "atlassian"
+#   | "meta" | "amazon" | "ibm" | "uber" | "atlassian" | "kula"
 # slug: the identifier used in that ATS's public API URL
 #   - workday is the odd one out: slug is "{tenant}.wd{N}/{site}", read off
 #     the company's careers URL — e.g.
@@ -132,6 +132,13 @@
 #     portalJobPost.portalUrl confirms Atlassian actually runs iCIMS
 #     underneath (Beamery, found on an earlier pass, is just a CRM layer
 #     in front of it) — this proxy is simpler to call directly.
+#   - kula's slug is the Kula.ai accountName — the vanity path segment in
+#     the company's careers.kula.ai/{accountName} URL, e.g. "vidyard" —
+#     added 2026-09-28, found via network capture on vidyard.com/careers/.
+#     Kula is a generic hosted-careers-page product (like Ongig/Humi
+#     below), so this same fetcher works for any other Kula-hosted
+#     company, just a different accountName. Full HTML description comes
+#     in the same list response; no per-job detail fetch needed.
 #
 # The list below is the original author's real target list (Alberta/Canada
 # tech companies), kept as-is as a working example of the format. Add or
@@ -1737,6 +1744,13 @@ companies:
     # endpoint returning the whole ~296-job board in one response, backed
     # by real iCIMS tenants underneath — confirmed live 2026-09-28, real
     # Data Engineer/Data Platform Engineer matches present (US + remote).
+  - name: Vidyard
+    ats: kula
+    slug: vidyard # old Greenhouse board is dead (404); current careers page
+    # embeds jobs via Kula.ai, a generic hosted-careers-page product —
+    # confirmed live 2026-09-28, 2 real postings, zero auth. Neither is
+    # Data-Engineer-shaped right now (Enterprise Account Manager,
+    # AI Marketing Operations Manager) — a real current state, not a bug.
 
   # --- Added 2026-09-28: SpaceX — found via a user-supplied
   # spacex.com/careers/jobs link; the site's own careers page pulls from

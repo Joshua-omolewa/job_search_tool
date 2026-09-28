@@ -673,10 +673,11 @@ def test_all_new_ats_types_wired_into_fetchers():
         "ibm": ats_clients.fetch_ibm,
         "uber": ats_clients.fetch_uber,
         "atlassian": ats_clients.fetch_atlassian,
+        "kula": ats_clients.fetch_kula,
     }
     for ats_type, fn in expected.items():
         assert ats_clients.FETCHERS[ats_type] is fn
-    print("FETCHERS: all 16 new ATS types wired in correctly — OK")
+    print("FETCHERS: all 17 new ATS types wired in correctly — OK")
 
 
 # --------------------------------------------------------------------- uber
@@ -785,6 +786,50 @@ def test_atlassian_dedupes_and_skips_incomplete():
         jobs = ats_clients.fetch_atlassian("Atlassian", "unused")
     assert len(jobs) == 1 and jobs[0]["url"] == "https://x/1"
     print("fetch_atlassian: dedupes by id, skips missing title/id — OK")
+
+
+# ----------------------------------------------------------------------- kula
+
+def test_kula_basic_parsing_and_url_construction():
+    # Shape trimmed from a real live response (2026-09-28) against
+    # careers.kula.ai/api/internal/ats_job_posts?accountName=vidyard —
+    # the apply URL isn't in the payload at all, it's constructed, so
+    # this specifically checks it matches the real site's own anchor
+    # href for this exact job (verified separately by loading
+    # careers.kula.ai/vidyard directly).
+    page1 = {
+        "data": [{
+            "id": 34567,
+            "title": "Future Opportunities: Enterprise Account Manager",
+            "launch_at": "2026-05-13T20:38:29.000Z",
+            "ats_job": {
+                "job_description": "<p>Build pipelines. Compensation range: $120,000 - $150,000 annually.</p>",
+                "offices": [{"location": "Quebec, Canada", "name": "Remote - Canada"}],
+            },
+        }],
+        "meta": {"count": 1, "page": 1, "items": 99, "pages": 1},
+    }
+    with patch("httpx.get", return_value=_resp(json_data=page1)):
+        jobs = ats_clients.fetch_kula("Vidyard", "vidyard")
+
+    assert len(jobs) == 1
+    j = jobs[0]
+    assert j["title"] == "Future Opportunities: Enterprise Account Manager"
+    assert j["location"] == "Quebec, Canada"
+    assert j["url"] == "https://careers.kula.ai/vidyard/34567-future-opportunities-enterprise-account-manager"
+    assert j["posted_at"] == "2026-05-13T20:38:29.000Z"
+    assert "Build pipelines" in j["description"]
+    assert j["salary"] == "$120,000 - $150,000"
+    print("fetch_kula: basic parsing, apply-URL construction, text-fallback salary — OK")
+
+
+def test_kula_paginates_and_dedupes():
+    page1 = {"data": [{"id": 1, "title": "A", "ats_job": {}}], "meta": {"pages": 2}}
+    page2 = {"data": [{"id": 2, "title": "B", "ats_job": {}}], "meta": {"pages": 2}}
+    with patch("httpx.get", side_effect=[_resp(json_data=page1), _resp(json_data=page2)]):
+        jobs = ats_clients.fetch_kula("Vidyard", "vidyard")
+    assert {j["title"] for j in jobs} == {"A", "B"}
+    print("fetch_kula: pagination across pages — OK")
 
 
 # ------------------------------------------------------------------------ ibm
