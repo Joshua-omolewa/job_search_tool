@@ -139,13 +139,31 @@ aggregators:
       unauthenticated endpoint linkedin.com/jobs' own search page calls for
       signed-out visitors. Confirmed live 2026-09-27 with real Canada
       results (Data Engineer - Snowflake @ Propel, Lead Data Engineer @
-      Nasdaq, Senior Data Engineer @ HelloFresh, ...) — LinkedIn's own
-      relevance ranking surfaces Senior/Staff/Platform variants under this
-      one broad keyword, same as Jobicy above, so this covers the same
-      ground as the four separate Adzuna entries without needing four
-      LinkedIn entries. Undocumented/unofficial, like Workday's CXS or
-      Gem's GraphQL API in ats_clients.py — could change or start
-      rate-limiting without notice; keep max_pages modest.
+      Nasdaq, Senior Data Engineer @ HelloFresh, ...). Undocumented/
+      unofficial, like Workday's CXS or Gem's GraphQL API in
+      ats_clients.py — could change or start rate-limiting without notice;
+      keep max_pages modest.
+
+  - name: LinkedIn (Canada, Data Platform Engineer)
+    type: linkedin
+    params:
+      keywords: "data platform engineer"
+      location: "Canada"
+      time_range: "r604800"
+      max_pages: 2
+    notes: >
+      Added 2026-09-27 — corrects an earlier assumption that LinkedIn's own
+      relevance ranking surfaced Data Platform Engineer roles under the
+      plain "data engineer" search above (same reasoning used for Jobicy),
+      which turned out false on direct comparison: a live search here
+      returned "Data Platform Engineer II", "Senior Engineer, Data
+      Platform", "Senior Staff Data Platform Engineer" (x2), and others
+      that the "data engineer" search entry above did NOT surface at all
+      (only 1 of its 20 results even mentioned "platform"). Same endpoint/
+      caveats as the entry above — this is the LinkedIn equivalent of
+      Adzuna's separate Data Platform Engineer entry, needed for the same
+      reason (a single broad keyword doesn't reliably surface this title
+      variant, confirmed live rather than assumed).
 
   - name: Indeed (Canada, Data Engineer)
     type: indeed
@@ -161,8 +179,24 @@ aggregators:
       DIRECTLY to a job's detail URL gets redirected to an explicit
       "bot-detection-anonymous" wall) — only a browser clicking through
       FROM a search-results page, the way an actual visitor would, works.
-      One entry only (not four, like Adzuna): each fetch launches its own
-      browser and every full-description fetch is a real in-page click, so
-      this is by far the slowest/heaviest aggregator here — Indeed's own
-      search relevance covers the Senior/Staff/Platform variants under one
-      broad query, same reasoning as LinkedIn/Jobicy above.
+      Each fetch launches its own browser and every full-description fetch
+      is a real in-page click, so this is by far the slowest/heaviest
+      aggregator here.
+
+  - name: Indeed (Canada, Data Platform Engineer)
+    type: indeed
+    params:
+      query: "data platform engineer"
+      location: "Canada"
+      sort: "date"
+    notes: >
+      Added 2026-09-27 — corrects an earlier assumption that Indeed's own
+      search relevance surfaced Data Platform Engineer roles under the
+      plain "data engineer" query above, which turned out false on direct
+      comparison: a live search here returned "Lead Data Platform Engineer
+      1", "Data Platform Operations Engineer", "Data Platform Engineer II"
+      and others the "data engineer" query above did NOT surface at all
+      (only 1 of its 16 results even mentioned "platform"). Same
+      playwright/bot-blocking caveats as the entry above — this doubles
+      Indeed's total fetch time (two separate browser launches instead of
+      one) but was the only way found to reliably reach these postings.
