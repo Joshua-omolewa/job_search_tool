@@ -51,7 +51,8 @@ is sent to a third party beyond fetching the postings themselves.
    SQLite database directly, for browsing results and tracking your own
    `applied / interview / rejected / skipped / silence` status and notes.
    Filter by AI status, your status, location, source (which fetcher found
-   it — Greenhouse, LinkedIn, Indeed, etc.), or free-text search; each row
+   it — Greenhouse, LinkedIn, Indeed, etc.), minimum AI match score, date
+   posted (today / last 7 / 30 / 90 days), or free-text search; each row
    also shows a best-effort salary (when the ATS discloses one) and how
    long ago it was posted. See [`web/README.md`](web/README.md) for what
    each column means.

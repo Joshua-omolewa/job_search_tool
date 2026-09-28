@@ -43,9 +43,10 @@ Only jobs that passed the deterministic filter (`passed_filters = 1`). Each row 
 - Source — which fetcher found it (`greenhouse`, `ashby`, `linkedin`, `indeed`, ...),
   straight from `job_details.source`.
 
-Filter by either status, by location, by source, or search by company/title, sort any
-column, click a row to open the full JD plus the AI's reasoning (gaps / strengths /
-risk factors) and edit status+notes.
+Filter by either status, by location, by source, by minimum AI match score, by date
+posted (today / last 7 / 30 / 90 days), or search by company/title, sort any column,
+click a row to open the full JD plus the AI's reasoning (gaps / strengths / risk
+factors) and edit status+notes.
 
 ## Production build
 
