@@ -674,10 +674,11 @@ def test_all_new_ats_types_wired_into_fetchers():
         "uber": ats_clients.fetch_uber,
         "atlassian": ats_clients.fetch_atlassian,
         "kula": ats_clients.fetch_kula,
+        "ukg_ultipro": ats_clients.fetch_ukg_ultipro,
     }
     for ats_type, fn in expected.items():
         assert ats_clients.FETCHERS[ats_type] is fn
-    print("FETCHERS: all 17 new ATS types wired in correctly — OK")
+    print("FETCHERS: all 18 new ATS types wired in correctly — OK")
 
 
 # --------------------------------------------------------------------- uber
@@ -830,6 +831,53 @@ def test_kula_paginates_and_dedupes():
         jobs = ats_clients.fetch_kula("Vidyard", "vidyard")
     assert {j["title"] for j in jobs} == {"A", "B"}
     print("fetch_kula: pagination across pages — OK")
+
+
+# ------------------------------------------------------------------ ukg_ultipro
+
+def test_ukg_ultipro_basic_parsing_and_slug_split():
+    # Shape trimmed from a real live response (2026-09-28) against MDA
+    # Space's Canada board. slug is "{host}/{tenant}/{boardGuid}" — this
+    # checks all three get split out and used correctly in both the
+    # request URL and the constructed detail URL.
+    search_json = {"opportunities": [{
+        "Id": "7a5d7ce7-e8dc-404b-a09c-cf1f0de625be",
+        "Title": "Senior Data Platform Engineer",
+        "Locations": [{"Address": {"City": "Brampton", "State": {"Code": "ON", "Name": "Ontario"},
+                                    "Country": {"Code": "CAN", "Name": "Canada"}}}],
+        "PostedDate": "2026-09-28T15:25:43.037Z",
+        "BriefDescription": "Build the data platform. Compensation range: $110,000 - $140,000 annually.",
+    }]}
+    with patch("httpx.post", return_value=_resp(json_data=search_json)) as mock_post:
+        jobs = ats_clients.fetch_ukg_ultipro(
+            "MDA Space", "recruiting.ultipro.ca/MAC5000MCDW/664818ff-3594-4bec-9f30-3394e59e19f3"
+        )
+    assert mock_post.call_args.args[0] == (
+        "https://recruiting.ultipro.ca/MAC5000MCDW/JobBoard/"
+        "664818ff-3594-4bec-9f30-3394e59e19f3/JobBoardView/LoadSearchResults"
+    )
+    assert len(jobs) == 1
+    j = jobs[0]
+    assert j["title"] == "Senior Data Platform Engineer"
+    assert j["location"] == "Brampton, Ontario, Canada"
+    assert j["url"] == (
+        "https://recruiting.ultipro.ca/MAC5000MCDW/JobBoard/664818ff-3594-4bec-9f30-3394e59e19f3/"
+        "OpportunityDetail?opportunityId=7a5d7ce7-e8dc-404b-a09c-cf1f0de625be"
+    )
+    assert j["posted_at"] == "2026-09-28T15:25:43.037Z"
+    assert j["salary"] == "$110,000 - $140,000"
+    print("fetch_ukg_ultipro: basic parsing, slug split, URL construction — OK")
+
+
+def test_ukg_ultipro_dedupes_by_id():
+    search_json = {"opportunities": [
+        {"Id": "1", "Title": "A", "Locations": [], "BriefDescription": ""},
+        {"Id": "1", "Title": "A", "Locations": [], "BriefDescription": ""},
+    ]}
+    with patch("httpx.post", return_value=_resp(json_data=search_json)):
+        jobs = ats_clients.fetch_ukg_ultipro("MDA Space", "host/tenant/guid")
+    assert len(jobs) == 1
+    print("fetch_ukg_ultipro: dedupes by Id — OK")
 
 
 # ------------------------------------------------------------------------ ibm

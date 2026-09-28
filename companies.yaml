@@ -3,7 +3,7 @@
 #   | "workday" | "bamboohr" | "rippling" | "teamtailor" | "gem"
 #   | "oraclecloud" | "successfactors" | "icims" | "eightfold" | "cornerstone"
 #   | "avature" | "hrdepartment" | "gr8people" | "google" | "apple" | "shopify"
-#   | "meta" | "amazon" | "ibm" | "uber" | "atlassian" | "kula"
+#   | "meta" | "amazon" | "ibm" | "uber" | "atlassian" | "kula" | "ukg_ultipro"
 # slug: the identifier used in that ATS's public API URL
 #   - workday is the odd one out: slug is "{tenant}.wd{N}/{site}", read off
 #     the company's careers URL — e.g.
@@ -139,6 +139,17 @@
 #     below), so this same fetcher works for any other Kula-hosted
 #     company, just a different accountName. Full HTML description comes
 #     in the same list response; no per-job detail fetch needed.
+#   - ukg_ultipro's slug is "{host}/{tenant}/{boardGuid}", read off the
+#     company's own recruiting.ultipro.* URL — e.g.
+#     "recruiting.ultipro.ca/MAC5000MCDW/664818ff-3594-4bec-9f30-3394e59e19f3"
+#     — added 2026-09-28, confirmed live against two unrelated tenants
+#     (MDA Space, Sandvine/AppLogic Networks) with the identical request/
+#     response shape, just a different host/tenant/guid — UKG customers
+#     get individually assigned hostnames, not a shared subdomain. KNOWN
+#     LIMITATION: description is only the list response's own
+#     BriefDescription teaser (avg ~400 chars) — the real per-job detail
+#     page is client-rendered (knockout.js, no SSR data), not worth
+#     reverse-engineering for a teaser-only gain.
 #
 # The list below is the original author's real target list (Alberta/Canada
 # tech companies), kept as-is as a working example of the format. Add or
@@ -1751,6 +1762,28 @@ companies:
     # confirmed live 2026-09-28, 2 real postings, zero auth. Neither is
     # Data-Engineer-shaped right now (Enterprise Account Manager,
     # AI Marketing Operations Manager) — a real current state, not a bug.
+  - name: MDA Space (Canada)
+    ats: ukg_ultipro
+    slug: recruiting.ultipro.ca/MAC5000MCDW/664818ff-3594-4bec-9f30-3394e59e19f3
+    # MDA runs 4 separate UKG/UltiPro boards (Canada/US/EMEA/Co-op) under
+    # the same tenant — confirmed live 2026-09-28, 182 jobs on this
+    # (Canada) board. Only Canada + US boards added, matching this tool's
+    # Canada-first/US-acceptable scope (EMEA is all non-NA locations;
+    # Co-op is filtered out by exclusion_keywords anyway). 0 current
+    # Data-Engineer-shaped matches (found "Data Processing"/"Data
+    # Handling" titles, neither matches title_allow_keywords) — a real
+    # current state, not a bug.
+  - name: MDA Space (US)
+    ats: ukg_ultipro
+    slug: recruiting.ultipro.ca/MAC5000MCDW/832d1816-e4c1-444e-9dc4-ef655be91245
+    # confirmed live 2026-09-28, 1 job on this board.
+  - name: Sandvine (AppLogic Networks)
+    ats: ukg_ultipro
+    slug: recruiting2.ultipro.com/PRO1053PROC/d6eed263-4950-420d-b9f8-5b1a441c931e
+    # rebranded to AppLogic Networks; real careers URL is now
+    # applogicnetworks.com/company/careers (sandvine.com/careers redirects
+    # to the bare homepage instead). Confirmed live 2026-09-28, 11 jobs,
+    # zero auth.
 
   # --- Added 2026-09-28: SpaceX — found via a user-supplied
   # spacex.com/careers/jobs link; the site's own careers page pulls from

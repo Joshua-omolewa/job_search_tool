@@ -2758,6 +2758,68 @@ def fetch_kula(company_display_name: str, slug: str) -> list[dict]:
     return jobs
 
 
+def fetch_ukg_ultipro(company_display_name: str, slug: str) -> list[dict]:
+    # UKG/UltiPro's recruiting job-board API — confirmed live 2026-09-28
+    # against two unrelated tenants (MDA Space on recruiting.ultipro.ca,
+    # Sandvine/AppLogic Networks on recruiting2.ultipro.com), same
+    # request/response shape both times, just a different host/tenant/
+    # board-guid per company (UKG customers get individually assigned
+    # hostnames, not a shared subdomain pattern). `slug` is
+    # "{host}/{tenant}/{boardGuid}", read off the company's own
+    # recruiting.ultipro.* URL, e.g.
+    # "recruiting.ultipro.ca/MAC5000MCDW/664818ff-3594-4bec-9f30-3394e59e19f3".
+    # KNOWN LIMITATION: the per-job OpportunityDetail page is
+    # client-rendered (knockout.js bindings, no SSR job data in the
+    # initial HTML — confirmed live, the full description loads via a
+    # further XHR this wasn't worth reverse-engineering for a teaser-only
+    # gain) so `description` here is just the list response's own
+    # BriefDescription teaser (46-800 chars observed live, avg ~400) —
+    # same "shorter than a real JD, no per-ATS detail fetch" tradeoff
+    # already accepted for a few other list-only fetchers in this module.
+    # No structured salary field anywhere in the payload.
+    host, tenant, board_guid = slug.split("/")
+    resp = httpx.post(
+        f"https://{host}/{tenant}/JobBoard/{board_guid}/JobBoardView/LoadSearchResults",
+        json={
+            "opportunitySearch": {"Top": 500, "Skip": 0, "QueryString": "", "Filters": []},
+            "matchCriteria": {
+                "PreferredJobs": [], "Educations": [], "LicenseAndCertifications": [], "Skills": [],
+                "hasNoLicenses": False, "SkippedSkills": [],
+            },
+        },
+        headers={"User-Agent": USER_AGENT, "Content-Type": "application/json"},
+        timeout=TIMEOUT,
+    )
+    resp.raise_for_status()
+    opportunities = resp.json().get("opportunities") or []
+
+    jobs = []
+    seen_ids = set()
+    for o in opportunities:
+        job_id = o.get("Id")
+        title = o.get("Title", "")
+        if not job_id or not title or job_id in seen_ids:
+            continue
+        seen_ids.add(job_id)
+        loc_strs = []
+        for loc in o.get("Locations") or []:
+            addr = loc.get("Address") or {}
+            state = (addr.get("State") or {}).get("Name")
+            country = (addr.get("Country") or {}).get("Name")
+            loc_strs.append(", ".join(p for p in (addr.get("City"), state, country) if p))
+        description = o.get("BriefDescription", "") or ""
+        jobs.append({
+            "company": company_display_name,
+            "title": title,
+            "location": "; ".join(l for l in loc_strs if l),
+            "url": f"https://{host}/{tenant}/JobBoard/{board_guid}/OpportunityDetail?opportunityId={job_id}",
+            "posted_at": o.get("PostedDate"),
+            "description": description,
+            "salary": _extract_salary_from_text(description),
+        })
+    return jobs
+
+
 FETCHERS = {
     "greenhouse": fetch_greenhouse,
     "ashby": fetch_ashby,
@@ -2786,6 +2848,7 @@ FETCHERS = {
     "uber": fetch_uber,
     "atlassian": fetch_atlassian,
     "kula": fetch_kula,
+    "ukg_ultipro": fetch_ukg_ultipro,
 }
 
 
