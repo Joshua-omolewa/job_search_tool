@@ -672,10 +672,11 @@ def test_all_new_ats_types_wired_into_fetchers():
         "amazon": ats_clients.fetch_amazon,
         "ibm": ats_clients.fetch_ibm,
         "uber": ats_clients.fetch_uber,
+        "atlassian": ats_clients.fetch_atlassian,
     }
     for ats_type, fn in expected.items():
         assert ats_clients.FETCHERS[ats_type] is fn
-    print("FETCHERS: all 15 new ATS types wired in correctly — OK")
+    print("FETCHERS: all 16 new ATS types wired in correctly — OK")
 
 
 # --------------------------------------------------------------------- uber
@@ -735,6 +736,55 @@ def test_uber_bodies_to_jobs_dedupes_across_pages():
     jobs = ats_clients._uber_bodies_to_jobs(bodies, "Uber")
     assert len(jobs) == 1
     print("_uber_bodies_to_jobs: duplicate Id across pages collapsed — OK")
+
+
+# ------------------------------------------------------------------ atlassian
+
+def test_atlassian_basic_parsing():
+    # Shape trimmed from a real live response (2026-09-28) against
+    # www.atlassian.com/endpoint/careers/listings — payRanges is always
+    # null and compensation is boilerplate text with no real numbers on
+    # every posting sampled, so salary only ever comes from the
+    # free-text fallback over the assembled description.
+    postings = [{
+        "id": 25584,
+        "title": "Senior Data Engineer, DX",
+        "locations": ["Salt Lake City - United States -   Salt Lake City, Utah 84044 United States", "Remote - Remote"],
+        "category": "Engineering",
+        "overview": "<p>Build the data platform.</p>",
+        "responsibilities": "<p>Own pipelines.</p>",
+        "qualifications": "<p>Strong SQL. Compensation range: $150,000 - $190,000 annually.</p>",
+        "applyUrl": "https://globalcareers-atlassian.icims.com/jobs/25584/senior-data-engineer/job",
+        "payRanges": None,
+        "compensation": "<p data-compensation='true'>We strive to design equitable, competitive compensation.</p>",
+        "portalJobPost": {"portalId": 17, "portalUrl": "https://globalcareers-atlassian.icims.com/jobs/25584/x/job",
+                           "id": 25584, "updatedDate": "2026-09-22 12:42 AM"},
+    }]
+    with patch("httpx.get", return_value=_resp(json_data=postings)):
+        jobs = ats_clients.fetch_atlassian("Atlassian", "unused")
+
+    assert len(jobs) == 1
+    j = jobs[0]
+    assert j["title"] == "Senior Data Engineer, DX"
+    assert "Salt Lake City" in j["location"] and "Remote - Remote" in j["location"]
+    assert j["url"] == "https://globalcareers-atlassian.icims.com/jobs/25584/senior-data-engineer/job"
+    assert j["posted_at"] == "2026-09-22 12:42 AM"
+    assert "Build the data platform" in j["description"] and "Own pipelines" in j["description"]
+    assert j["salary"] == "$150,000 - $190,000"
+    print("fetch_atlassian: basic parsing, description assembly, text-fallback salary — OK")
+
+
+def test_atlassian_dedupes_and_skips_incomplete():
+    postings = [
+        {"id": 1, "title": "A", "locations": [], "overview": "", "applyUrl": "https://x/1", "portalJobPost": {}},
+        {"id": 1, "title": "A", "locations": [], "overview": "", "applyUrl": "https://x/1", "portalJobPost": {}},
+        {"id": 2, "title": "", "locations": [], "overview": "", "applyUrl": "https://x/2", "portalJobPost": {}},
+        {"id": None, "title": "C", "locations": [], "overview": "", "applyUrl": "https://x/3", "portalJobPost": {}},
+    ]
+    with patch("httpx.get", return_value=_resp(json_data=postings)):
+        jobs = ats_clients.fetch_atlassian("Atlassian", "unused")
+    assert len(jobs) == 1 and jobs[0]["url"] == "https://x/1"
+    print("fetch_atlassian: dedupes by id, skips missing title/id — OK")
 
 
 # ------------------------------------------------------------------------ ibm

@@ -2648,6 +2648,57 @@ def _uber_bodies_to_jobs(bodies: list, company_display_name: str) -> list[dict]:
     return jobs
 
 
+def fetch_atlassian(company_display_name: str, slug: str) -> list[dict]:
+    # Atlassian's careers site has no visible third-party ATS in its own
+    # UI (fronted by Beamery, a recruitment CRM, not an ATS) but its own
+    # frontend calls a first-party proxy endpoint that returns the WHOLE
+    # board in one response, no pagination needed — confirmed live
+    # 2026-09-28, ~296 postings, zero auth. `slug` is unused (single
+    # fixed global endpoint, not per-tenant) — kept for signature
+    # consistency with every other fetcher here. Each posting's
+    # `portalJobPost.portalUrl` points at a real iCIMS tenant
+    # (globalcareers-atlassian.icims.com / careers-americas.icims.com,
+    # selected per portalId) confirming Atlassian runs iCIMS underneath —
+    # but this proxy is simpler to call directly than reverse-engineering
+    # per-region iCIMS tenants. No structured salary field: `payRanges`
+    # is always null and `compensation` is boilerplate text with no
+    # actual numbers on every posting sampled — only the free-text
+    # fallback applies, same as Ashby/Workday.
+    resp = httpx.get(
+        "https://www.atlassian.com/endpoint/careers/listings",
+        headers={"User-Agent": USER_AGENT, "Accept": "application/json"},
+        timeout=TIMEOUT,
+    )
+    resp.raise_for_status()
+    postings = resp.json()
+    if not isinstance(postings, list):
+        postings = []
+
+    jobs = []
+    seen_ids = set()
+    for p in postings:
+        job_id = p.get("id")
+        title = p.get("title", "")
+        apply_url = p.get("applyUrl") or (p.get("portalJobPost") or {}).get("portalUrl")
+        if not job_id or not title or not apply_url or job_id in seen_ids:
+            continue
+        seen_ids.add(job_id)
+        location = "; ".join(p.get("locations") or [])
+        description = filters.strip_html(
+            "\n".join(p.get(k, "") or "" for k in ("overview", "responsibilities", "qualifications"))
+        )
+        jobs.append({
+            "company": company_display_name,
+            "title": title,
+            "location": location,
+            "url": apply_url,
+            "posted_at": (p.get("portalJobPost") or {}).get("updatedDate"),
+            "description": description,
+            "salary": _extract_salary_from_text(description),
+        })
+    return jobs
+
+
 FETCHERS = {
     "greenhouse": fetch_greenhouse,
     "ashby": fetch_ashby,
@@ -2674,6 +2725,7 @@ FETCHERS = {
     "amazon": fetch_amazon,
     "ibm": fetch_ibm,
     "uber": fetch_uber,
+    "atlassian": fetch_atlassian,
 }
 
 

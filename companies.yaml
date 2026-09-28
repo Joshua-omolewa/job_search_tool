@@ -3,7 +3,7 @@
 #   | "workday" | "bamboohr" | "rippling" | "teamtailor" | "gem"
 #   | "oraclecloud" | "successfactors" | "icims" | "eightfold" | "cornerstone"
 #   | "avature" | "hrdepartment" | "gr8people" | "google" | "apple" | "shopify"
-#   | "meta" | "amazon" | "ibm" | "uber"
+#   | "meta" | "amazon" | "ibm" | "uber" | "atlassian"
 # slug: the identifier used in that ATS's public API URL
 #   - workday is the odd one out: slug is "{tenant}.wd{N}/{site}", read off
 #     the company's careers URL — e.g.
@@ -123,6 +123,15 @@
 #     titles are apparently just "Software Engineer" even for
 #     data-flavored roles) — this is a genuine, verified state of Uber's
 #     current postings, not a bug in the fetcher.
+#   - atlassian's slug is unused (single fixed global endpoint, not
+#     per-tenant) — added 2026-09-28, found via network capture on
+#     atlassian.com/company/careers/all-jobs. Its own frontend calls a
+#     first-party proxy (www.atlassian.com/endpoint/careers/listings)
+#     that returns the WHOLE board in one response, zero auth, no
+#     pagination needed (~296 postings). Each posting's
+#     portalJobPost.portalUrl confirms Atlassian actually runs iCIMS
+#     underneath (Beamery, found on an earlier pass, is just a CRM layer
+#     in front of it) — this proxy is simpler to call directly.
 #
 # The list below is the original author's real target list (Alberta/Canada
 # tech companies), kept as-is as a working example of the format. Add or
@@ -1721,6 +1730,13 @@ companies:
     # careers.q4inc.com path (plain 404, not actually bot-walled); the real
     # current portal is careers.q4inc.com/overview which runs on Rippling —
     # confirmed live 2026-09-28, 6 jobs, zero auth.
+  - name: Atlassian
+    ats: atlassian
+    slug: unused # earlier finding ("Beamery, likely fully custom") only looked
+    # at the visible frontend; network capture found a first-party proxy
+    # endpoint returning the whole ~296-job board in one response, backed
+    # by real iCIMS tenants underneath — confirmed live 2026-09-28, real
+    # Data Engineer/Data Platform Engineer matches present (US + remote).
 
   # --- Added 2026-09-28: SpaceX — found via a user-supplied
   # spacex.com/careers/jobs link; the site's own careers page pulls from
