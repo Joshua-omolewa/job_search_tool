@@ -138,6 +138,19 @@ location_allow_patterns:
   - '\bnorth america\b'
   - '\bnoram\b'
   - '\bamericas\b'
+  # --- US state abbreviations ("City, ST" with no country at all) — added
+  # 2026-09-28 after finding several real US-only companies (SpaceX on
+  # Greenhouse, Applied Materials on Workday, confirmed live) format every
+  # single posting's location as just "Austin, TX" / "Santa Clara,CA" —
+  # no "United States"/"USA" anywhere — so EVERY one of their US postings
+  # was silently failing this filter before this was added, the same bug
+  # class as Apple's missing-countryName issue in ats_clients.py. Safe to
+  # match on a bare `,\s*ST\b` (even for state codes that are also common
+  # English words, e.g. OR/IN/HI/OK/ME): this function is only ever
+  # called on a fetcher's own structured location field, never on
+  # free-text description prose, so there's no real sentence context for
+  # a word like "or"/"in" to appear directly after a comma by coincidence.
+  - ',\s*(AL|AK|AZ|AR|CA|CO|CT|DE|FL|GA|HI|ID|IL|IN|IA|KS|KY|LA|ME|MD|MA|MI|MN|MS|MO|MT|NE|NV|NH|NJ|NM|NY|NC|ND|OH|OK|OR|PA|RI|SC|SD|TN|TX|UT|VT|VA|WA|WV|WI|WY|DC)\b'
 
 # JD stack dealbreakers — if the description clearly requires one of these
 # and does NOT also mention anything from stack_core, treat it as a

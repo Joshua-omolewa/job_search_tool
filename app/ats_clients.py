@@ -150,6 +150,7 @@ you've confirmed it yourself.
 import html
 import json
 import re
+import urllib.parse
 import xml.etree.ElementTree as ET
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
@@ -305,7 +306,17 @@ _SALARY_RANGE_RE = re.compile(
     # space where a source page split the amount across two HTML elements
     # (e.g. Avature: "<font>...$</font><span>180000</span>" -> "$  180000",
     # confirmed live) — a single optional space silently missed that.
-    rf"(?:\$\s*({_SALARY_NUMBER})\s*[kK]?\s*(?:-|–|—|to)\s*\$?\s*({_SALARY_NUMBER})\s*[kK]?)"
+    # Optional currency-code PREFIX before the $ sign too ("USD $202,000 per
+    # year - USD $224,000 per year", confirmed live on Uber 2026-09-28) —
+    # the currency-as-suffix form below already covered "182,000 USD", but
+    # not this equally common "USD $182,000" ordering.
+    # An optional "per year"/"per hour"/"annually" etc. can sit between the
+    # first number and the separating dash ("USD $202,000 per year - USD
+    # $224,000 per year", same Uber text) — without allowing for it, the
+    # dash never got reached and the whole match silently failed.
+    rf"(?:(?:USD|CAD|EUR|GBP)\s*)?\$\s*({_SALARY_NUMBER})\s*[kK]?"
+    rf"(?:\s*per\s*(?:year|hour|annum|month))?\s*(?:-|–|—|to)\s*"
+    rf"(?:(?:USD|CAD|EUR|GBP)\s*)?\$?\s*({_SALARY_NUMBER})\s*[kK]?"
     rf"|(?:({_SALARY_NUMBER})\s*(?:USD|CAD|EUR|GBP)\s*(?:-|–|—|to)\s*({_SALARY_NUMBER})\s*(?:USD|CAD|EUR|GBP))"
 )
 
@@ -2366,6 +2377,277 @@ def fetch_gr8people(company_display_name: str, slug: str) -> list[dict]:
     return jobs
 
 
+_AMAZON_PAGE_SIZE = 100
+_AMAZON_LIST_WORKERS = 8
+
+
+def fetch_amazon(company_display_name: str, slug: str) -> list[dict]:
+    # Amazon's careers site (amazon.jobs) has no third-party ATS, but its
+    # own frontend calls a real, public, unauthenticated JSON search API —
+    # confirmed live 2026-09-28 (this was missed on an earlier pass that
+    # concluded "no supported ATS found"; the actual UI request uses plain
+    # `country=CAN`, not the `country[]=CAN` array-style param a naive
+    # guess would produce, which silently ignores the filter and returns
+    # unrelated worldwide results instead of erroring — a real gotcha
+    # caught by watching the real page's own network request rather than
+    # guessing the query shape). `slug` is "{country_code}/{base_query}"
+    # — country_code is Amazon's own 3-letter code ("USA", "CAN", not
+    # ISO's "US"/"CA"), base_query is the keyword search Amazon's own site
+    # uses (e.g. "data engineer") — see companies.yaml's header comment.
+    # Full HTML description comes back in the SAME response as the
+    # listing, no per-job detail fetch needed. No structured salary field,
+    # only the free-text fallback applies, same as Ashby/Workday.
+    country, _, base_query = slug.partition("/")
+
+    def _fetch_page(offset: int) -> tuple[list, int]:
+        resp = httpx.get(
+            "https://www.amazon.jobs/en/search.json",
+            params={
+                "offset": offset, "result_limit": _AMAZON_PAGE_SIZE, "sort": "relevant",
+                "base_query": base_query, "country": country,
+            },
+            headers={"User-Agent": USER_AGENT, "Accept": "application/json"},
+            timeout=TIMEOUT,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        return data.get("jobs") or [], data.get("hits") or 0
+
+    first_jobs, total = _fetch_page(0)
+    if not first_jobs:
+        return []
+    all_raw = list(first_jobs)
+
+    if total > len(all_raw):
+        offsets = range(_AMAZON_PAGE_SIZE, total, _AMAZON_PAGE_SIZE)
+        with ThreadPoolExecutor(max_workers=_AMAZON_LIST_WORKERS) as pool:
+            for page_jobs, _ in pool.map(_fetch_page, offsets):
+                all_raw.extend(page_jobs)
+
+    jobs = []
+    seen_ids = set()
+    for j in all_raw:
+        job_id = j.get("id_icims") or j.get("id")
+        title = j.get("title", "")
+        job_path = j.get("job_path", "")
+        if not job_id or not title or not job_path or job_id in seen_ids:
+            continue
+        seen_ids.add(job_id)
+        location = j.get("location", "") or ", ".join(
+            p for p in (j.get("city"), j.get("state"), j.get("country_code")) if p
+        )
+        description = "\n".join(
+            p for p in (j.get("description"), j.get("basic_qualifications"), j.get("preferred_qualifications")) if p
+        )
+        jobs.append({
+            "company": company_display_name,
+            "title": title,
+            "location": location,
+            "url": f"https://www.amazon.jobs{job_path}",
+            "posted_at": j.get("posted_date"),  # human string ("August 7, 2026"), not ISO
+            "description": description,
+            "salary": _extract_salary_from_text(description),
+        })
+    return jobs
+
+
+_IBM_PAGE_SIZE = 100
+_IBM_LIST_WORKERS = 8
+_IBM_SOURCE_FIELDS = ["title", "url", "description", "field_keyword_05", "field_keyword_19", "field_keyword_17"]
+
+
+def _ibm_search(base_query: str, country: str, offset: int) -> tuple[list, int]:
+    resp = httpx.post(
+        "https://www-api.ibm.com/search/api/v2",
+        json={
+            "appId": "careers",
+            "scopes": ["careers2"],
+            "query": {"bool": {"must": [{"multi_match": {"query": base_query, "fields": ["title", "description"]}}]}},
+            "post_filter": {"term": {"field_keyword_05": country}},
+            "size": _IBM_PAGE_SIZE,
+            "from": offset,
+            "_source": _IBM_SOURCE_FIELDS,
+            "lang": "zz",
+        },
+        headers={"User-Agent": USER_AGENT, "Content-Type": "application/json"},
+        timeout=TIMEOUT,
+    )
+    resp.raise_for_status()
+    data = resp.json()
+    hits = data.get("hits") or {}
+    return hits.get("hits") or [], (hits.get("total") or {}).get("value") or 0
+
+
+def fetch_ibm(company_display_name: str, slug: str) -> list[dict]:
+    # IBM's real careers site (careers.ibm.com) is hard AWS-WAF-blocked
+    # (HTTP 202 "challenge" response, every path, confirmed live
+    # 2026-09-28 — this includes the per-job JobDetail page, so no full
+    # description is reachable, only the short search snippet). But
+    # careers.ibm.com is a FRONTEND for a separate, NOT blocked search
+    # backend — https://www-api.ibm.com/search/api/v2 — a generic
+    # Elasticsearch-query-DSL proxy IBM's own www.ibm.com/careers/search
+    # page calls, reverse-engineered by watching that real page's own
+    # network request (also found this way: `field_keyword_05` = country,
+    # `field_keyword_19` = city, `field_keyword_17` = work arrangement
+    # (Hybrid/Remote/onsite) — these numbered field names aren't
+    # documented anywhere, they're internal IBM search-index field IDs).
+    # `slug` is "{country}/{base_query}" — country is IBM's own facet
+    # value (e.g. "United States", "Canada" — plain English, not a code),
+    # base_query is a free-text keyword search matched against title AND
+    # description server-side (real relevance-ranked results, not just a
+    # category filter). No structured salary field, only the free-text
+    # fallback applies, same as Ashby/Workday.
+    country, _, base_query = slug.partition("/")
+
+    first_hits, total = _ibm_search(base_query, country, 0)
+    if not first_hits:
+        return []
+    all_hits = list(first_hits)
+
+    if total > len(all_hits):
+        offsets = range(_IBM_PAGE_SIZE, total, _IBM_PAGE_SIZE)
+        with ThreadPoolExecutor(max_workers=_IBM_LIST_WORKERS) as pool:
+            for page_hits, _ in pool.map(lambda off: _ibm_search(base_query, country, off), offsets):
+                all_hits.extend(page_hits)
+
+    jobs = []
+    seen_urls = set()
+    for h in all_hits:
+        src = h.get("_source") or {}
+        title = src.get("title", "")
+        url = src.get("url", "")
+        if not title or not url or url in seen_urls:
+            continue
+        seen_urls.add(url)
+        # field_keyword_19 is already "City, CC" (e.g. "Austin, US") — drop
+        # the 2-letter code before appending the full country name so the
+        # result isn't "Austin, US, United States".
+        city = (src.get("field_keyword_19", "") or "").rsplit(",", 1)[0].strip()
+        location = ", ".join(p for p in (city, country) if p and p != "Multiple Cities")
+        description = src.get("description", "") or ""
+        jobs.append({
+            "company": company_display_name,
+            "title": title,
+            "location": location or country,
+            "url": url,
+            "posted_at": None,  # not present in this search index
+            "description": description,
+            "salary": _extract_salary_from_text(description),
+        })
+    return jobs
+
+
+def fetch_uber(company_display_name: str, slug: str) -> list[dict]:
+    # Uber's real careers site (jobs.uber.com) has no third-party ATS and
+    # calls its own JSON API (jobs.uber.com/api/jobs/search/) — but that
+    # endpoint is Cloudflare-bot-walled to a plain request (confirmed live
+    # 2026-09-28: bare httpx gets a 403 "Just a moment..." challenge page)
+    # even though it's completely public through a real browser, no
+    # login/session needed — same shape as Indeed's block in
+    # aggregator_clients.py, so this uses the same real-headless-browser
+    # workaround. IMPORTANT: this superseded an earlier "oraclecloud"
+    # Uber entry — iaziqy.fa.ocs.oraclecloud.com/UberCareers is a REAL,
+    # live Oracle board (verified live 2026-09-27) but has ZERO Data
+    # Engineer-shaped titles despite 538 postings (confirmed by manual
+    # inspection: mostly ops/sales/mechanical-engineering roles) — it's
+    # apparently a different or non-primary hiring pipeline, not where
+    # Uber's real software engineering roles are posted. `slug` is the
+    # free-text keyword search Uber's own site uses (e.g. "data
+    # engineer") — no reliable location/country query param was found
+    # (a `location=Canada` param is accepted but silently returns 0
+    # results, confirmed live), so this returns results across all
+    # countries and relies on filters.location_is_allowed downstream to
+    # narrow to US/Canada, same approach used for fetch_ibm/fetch_amazon
+    # when no explicit country scoping was available or reliable.
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError:
+        print("[WARN] Uber requires the optional `playwright` dependency "
+              "(pip install playwright && playwright install chromium) — skipping.")
+        return []
+
+    base_query = slug
+    page_size = 100
+    pages_bodies = []
+
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            try:
+                page = browser.new_page(user_agent=USER_AGENT)
+                captured = {}
+
+                def _on_response(resp):
+                    if "/api/jobs/search/" in resp.url:
+                        try:
+                            captured["body"] = resp.json()
+                        except Exception:
+                            pass
+
+                page.on("response", _on_response)
+
+                page_num = 1
+                while True:
+                    captured.clear()
+                    url = (
+                        f"https://jobs.uber.com/en/jobs/?search={urllib.parse.quote(base_query)}"
+                        f"&page={page_num}&pagesize={page_size}"
+                    )
+                    page.goto(url, wait_until="domcontentloaded", timeout=30000)
+                    page.wait_for_timeout(5000 if page_num == 1 else 3000)
+                    body = captured.get("body")
+                    if not body or not body.get("jobs"):
+                        break
+                    pages_bodies.append(body)
+                    total_jobs = body.get("totalJobs") or 0
+                    if page_num * page_size >= total_jobs:
+                        break
+                    page_num += 1
+                    if page_num > 50:  # sanity guard
+                        break
+            finally:
+                browser.close()
+    except Exception:
+        return pages_bodies and _uber_bodies_to_jobs(pages_bodies, company_display_name) or []
+
+    return _uber_bodies_to_jobs(pages_bodies, company_display_name)
+
+
+def _uber_bodies_to_jobs(bodies: list, company_display_name: str) -> list[dict]:
+    jobs = []
+    seen_ids = set()
+    for body in bodies:
+        for j in body.get("jobs") or []:
+            job_id = j.get("Id")
+            title = j.get("Title", "")
+            urls = j.get("Urls") or []
+            path = next((u.get("Url") for u in urls if u.get("IsDefault")), urls[0].get("Url") if urls else None)
+            if not job_id or not title or not path or job_id in seen_ids:
+                continue
+            seen_ids.add(job_id)
+            locs = j.get("Locations") or []
+            loc = locs[0] if locs else {}
+            location = ", ".join(p for p in (loc.get("City"), loc.get("Region"), loc.get("Country")) if p)
+            description = j.get("Description", "") or ""
+            salary_info = j.get("Salary") or {}
+            salary = (
+                _format_money_range(
+                    salary_info.get("MinValue"), salary_info.get("MaxValue"),
+                    salary_info.get("Currency"), (salary_info.get("Period") or "").lower() or None,
+                ) if (salary_info.get("MinValue") or salary_info.get("MaxValue")) else None
+            ) or _extract_salary_from_text(salary_info.get("Description") or description)
+            jobs.append({
+                "company": company_display_name,
+                "title": title,
+                "location": location,
+                "url": f"https://jobs.uber.com{path}",
+                "posted_at": j.get("DisplayDate"),
+                "description": description,
+                "salary": salary,
+            })
+    return jobs
+
+
 FETCHERS = {
     "greenhouse": fetch_greenhouse,
     "ashby": fetch_ashby,
@@ -2389,6 +2671,9 @@ FETCHERS = {
     "apple": fetch_apple,
     "shopify": fetch_shopify,
     "meta": fetch_meta,
+    "amazon": fetch_amazon,
+    "ibm": fetch_ibm,
+    "uber": fetch_uber,
 }
 
 

@@ -3,7 +3,7 @@
 #   | "workday" | "bamboohr" | "rippling" | "teamtailor" | "gem"
 #   | "oraclecloud" | "successfactors" | "icims" | "eightfold" | "cornerstone"
 #   | "avature" | "hrdepartment" | "gr8people" | "google" | "apple" | "shopify"
-#   | "meta"
+#   | "meta" | "amazon" | "ibm" | "uber"
 # slug: the identifier used in that ATS's public API URL
 #   - workday is the odd one out: slug is "{tenant}.wd{N}/{site}", read off
 #     the company's careers URL — e.g.
@@ -83,6 +83,46 @@
 #     (e.g. "shopify") rather than being left blank — a blank value parses
 #     as YAML null, which breaks `--company <slug>` debugging since
 #     main.py matches by exact slug.
+#   - amazon's slug is "{country_code}/{base_query}" — added 2026-09-28
+#     after an earlier pass wrongly concluded amazon.jobs had no supported
+#     ATS: it actually has a real public JSON search API
+#     (amazon.jobs/en/search.json), just not shaped like any of the 22
+#     named ATS types above, so it gets its own bespoke fetcher like
+#     google/apple/meta/shopify. country_code is Amazon's own 3-letter
+#     code (e.g. "USA", "CAN" — NOT ISO's 2-letter "US"/"CA"), base_query
+#     is the keyword search Amazon's own site uses (e.g. "data engineer")
+#     — e.g. "USA/data engineer" and "CAN/data engineer". IMPORTANT: the
+#     country filter MUST be a plain `country=CAN` request param, not the
+#     array-style `country[]=CAN` a naive guess would produce — the latter
+#     is silently ignored by the API (no error) and returns unrelated
+#     worldwide results instead, confirmed live 2026-09-28.
+#   - ibm's slug is "{country}/{base_query}" — added 2026-09-28. IBM's real
+#     careers site (careers.ibm.com) is hard AWS-WAF-blocked (HTTP 202
+#     challenge, every path, including the per-job detail page — no full
+#     description reachable, only a short search snippet), but its search
+#     backend (www-api.ibm.com/search/api/v2, a generic Elasticsearch-
+#     query-DSL proxy) is a SEPARATE, unblocked service that returns real
+#     job data. country is IBM's own facet value in plain English (e.g.
+#     "United States", "Canada" — not a code), base_query is a free-text
+#     keyword search matched against title+description server-side.
+#   - uber's slug is just the free-text keyword search (e.g. "data
+#     engineer") — added 2026-09-28, found via a user-supplied
+#     jobs.uber.com search link. Uber's own JSON API
+#     (jobs.uber.com/api/jobs/search/) is Cloudflare-bot-walled to a
+#     plain request (confirmed live: bare httpx gets a 403 challenge
+#     page) even though it's fully public through a real browser — this
+#     needs the optional `playwright` dependency, same as Indeed in
+#     aggregator_clients.py, and degrades to a [WARN] + empty result
+#     without it. No reliable location/country param was found (a
+#     `location=Canada` param is accepted but silently returns 0 results)
+#     so results span all countries; filters.location_is_allowed narrows
+#     it down downstream. NOTE: Uber's search is a loose full-text match
+#     against title+description, not an exact-title match — confirmed
+#     live that searching "data engineer" returns 439 results with ZERO
+#     literal "Data Engineer" job titles among them (Uber's engineering
+#     titles are apparently just "Software Engineer" even for
+#     data-flavored roles) — this is a genuine, verified state of Uber's
+#     current postings, not a bug in the fetcher.
 #
 # The list below is the original author's real target list (Alberta/Canada
 # tech companies), kept as-is as a working example of the format. Add or
@@ -865,16 +905,20 @@ companies:
   # Checked and deliberately NOT added — no public API on any ATS this tool
   # supports (Greenhouse/Ashby/Workable/Lever/SmartRecruiters/Workday); all
   # run fully proprietary/custom career sites:
-  #   Amazon, LinkedIn, Atlassian, DoorDash (confirmed no public ATS API),
-  #   Uber (confirmed Oracle Recruiting Cloud/HCM via a job posting
-  #   requiring that skill).
+  #   LinkedIn, Atlassian, DoorDash (US board — DoorDash's separate Canada
+  #   board IS on Greenhouse, see the "DoorDash Canada" entry below).
   #   (Clio WAS in this list — turned out to be on Workday after all, just
   #   under a slug this pass didn't guess; see the Clio entry above. Meta,
   #   Google, Netflix, Microsoft, Apple, and Shopify WERE in this list too
   #   — each has no THIRD-PARTY ATS, but a 2026-09-27 pass found each one's
   #   own custom career site quietly exposes a real, unauthenticated way to
   #   read job data server-side — see their entries below under the new
-  #   google/apple/meta/shopify/eightfold ats types.)
+  #   google/apple/meta/shopify/eightfold ats types. Amazon and IBM WERE in
+  #   this list too — 2026-09-28 passes found each has a real public JSON
+  #   API after all (see the "amazon"/"ibm" ats types and their entries
+  #   below). Uber WAS in this list too, noted as "Oracle Recruiting Cloud/
+  #   HCM, unverified" — the marketcap batch later confirmed and added it
+  #   live under "oraclecloud", see the Uber entry below.)
   - name: Coinbase
     ats: greenhouse
     slug: coinbase
@@ -1340,13 +1384,14 @@ companies:
   #         ats: gr8people
   #         slug: ea
   #     and verify with `python -m app.main --company ea` before trusting it.
-  #   - IBM: careers.ibm.com is hard-blocked by an AWS WAF JS challenge
-  #     (HTTP 202, empty body, every path, every retry); its newer
-  #     www.ibm.com/careers/search page loads fine but ships zero job data
-  #     server-side — everything is rendered by a webpack-content-hashed JS
-  #     bundle whose real filename can't be discovered without executing JS
-  #     in a real browser, behind Akamai Bot Manager on top of that. No
-  #     viable unauthenticated path found.
+  #   - IBM WAS in this list too — careers.ibm.com itself is still
+  #     hard-blocked by an AWS WAF JS challenge (HTTP 202, empty body,
+  #     every path, INCLUDING the per-job detail page, so no full
+  #     description is reachable) — but a 2026-09-28 pass found
+  #     www.ibm.com/careers/search's real SEARCH BACKEND is a separate,
+  #     NOT-blocked API (www-api.ibm.com/search/api/v2) that returns real
+  #     job data including a short description snippet. See the "ibm" ats
+  #     type in the header comment and its entries below.
 
   # --- Added 2026-09-27: companiesmarketcap.com "largest tech companies by
   # market cap" scan (page 1, top 100), US-HQ'd companies not already
@@ -1379,8 +1424,8 @@ companies:
     ats: icims
     slug: careers.garmin.com # 409 open jobs (iCIMS Attract front-end)
   - name: Uber
-    ats: oraclecloud
-    slug: iaziqy.fa.ocs.oraclecloud.com/UberCareers # 540 open reqs — corrects the earlier "Oracle Recruiting Cloud/HCM, not verified live" note
+    ats: uber
+    slug: data engineer # switched 2026-09-28 from the "oraclecloud" board (iaziqy.fa.ocs.oraclecloud.com/UberCareers — still real and live, 538 postings, but confirmed ZERO Data-Engineer-shaped titles: mostly ops/sales/mechanical-engineering roles, apparently a non-primary or regional pipeline) to Uber's real jobs.uber.com site, where a user-found link led to discovering a public (but Cloudflare-bot-walled) JSON API — see the "uber" ats type in the header comment
   - name: Seagate Technology
     ats: successfactors
     slug: seagatecareers.com # 272 postings — corrects the earlier "SuccessFactors, not verified live" note (a bamboohr slug guess for "seagate" was a false positive, unrelated company)
@@ -1582,3 +1627,111 @@ companies:
   - name: Bloomberg
     ats: avature
     slug: bloomberg # 350 results
+
+  # --- Added 2026-09-28: Amazon, via its real (but previously missed)
+  # public JSON search API — see the header comment's "amazon" section
+  # for the full story and the country[] gotcha. ---
+  - name: Amazon
+    ats: amazon
+    slug: USA/data engineer # 410 open "data engineer" matches
+  - name: Amazon (Canada)
+    ats: amazon
+    slug: CAN/data engineer # 7 open "data engineer" matches
+
+  # --- Added 2026-09-28: IBM, via a real (but previously missed) SEPARATE
+  # search backend behind the still-WAF-blocked careers.ibm.com — see the
+  # header comment's "ibm" section for the full story. ---
+  - name: IBM
+    ats: ibm
+    slug: United States/data engineer # 145 "data engineer" matches
+  - name: IBM (Canada)
+    ats: ibm
+    slug: Canada/data engineer # 5 "data engineer" matches
+
+  # --- Checked and deliberately NOT added, RE-VERIFIED 2026-09-28 (a
+  # second research pass found real APIs for most of the companies
+  # previously listed here as blocked — those were moved down into real
+  # entries below; this list is now just the genuine remainder). Every
+  # reason below is a live finding, not a guess: ---
+  #   - CGI: cgi.njoyn.com (Njoyn, IBM's proprietary in-house ATS) is
+  #     Radware Bot Manager-walled — real "Radware Captcha Page" /
+  #     hCaptcha challenge on both a full headless-browser load AND a
+  #     plain httpx GET, no hidden JSON API reachable without solving it.
+  #   - Epic Games: a real Workday tenant exists (epicgames/epic_games on
+  #     wd5) but returns a definitive `HTTP_403 "permission denied"` —
+  #     looks genuinely access-restricted (e.g. requires a referrer/
+  #     session the public careers page sets that a bare API call
+  #     doesn't have), not a temporary glitch.
+  #   - HashiCorp: acquired by IBM, hashicorp.com's own "Open positions"
+  #     links now all point to ibm.com/careers/search?q=hashicorp — i.e.
+  #     IBM's general job search backend (www-api.ibm.com/search/api/v2,
+  #     the same one behind the "ibm" ats type above), filtered by
+  #     keyword. Re-verified directly against that already-working
+  #     fetcher's actual query shape (multi_match on title+description,
+  #     no post_filter) — 0 hits company-wide. A separate, wider
+  #     simple_query_string variant across extra fields (keywords/body/
+  #     url/h1s_content/field_text_01) does surface 5 hits, but every one
+  #     is a generic IBM posting (e.g. "AWS DevOps Engineer", "Senior
+  #     Front End Developer") that merely name-drops HashiCorp tooling in
+  #     its body text, none Data-Engineer-shaped — not worth widening the
+  #     shared IBM query (would affect every other IBM entry) for zero
+  #     real candidates. HashiCorp has no distinguishable board anymore.
+  #   - Charli AI: rebranded to charliai.com; 301-redirects straight to
+  #     the homepage with zero careers/jobs link anywhere in nav/footer
+  #     (60+ links crawled) and zero job-data XHR on the page.
+  #   - Terramera: terramera.bamboohr.com now redirects to bamboohr.com's
+  #     own marketing homepage (account deactivated) and the specific
+  #     job-view links still shown on terramera.com/careers are stale
+  #     leftover static HTML — they 404/410 individually.
+  #   - Opencare: mailto-only application process — confirmed via full
+  #     network capture, zero job-data XHR of any kind, no ATS widget.
+  #   - DataStax: acquired by IBM, careers page redirects to an IBM
+  #     product marketing page; queried IBM's own search backend directly
+  #     for "DataStax"/"Cassandra"/"Astra DB" — 0 hits on all three, not
+  #     separately indexed. No orphaned standalone board found either
+  #     (Greenhouse/Lever/Workday tenant guesses all 404).
+  #   - Doist: real careers page (redirects to todoist.com/careers) has a
+  #     genuine hidden Astro server-island endpoint that server-renders
+  #     the open-roles section — hit it directly with plain curl and it
+  #     confirms "No open roles" company-wide right now, not a fetch gap.
+  #   - Canadian Digital Service: digital.canada.ca/jobs is plain
+  #     server-rendered static HTML with zero XHR beyond analytics —
+  #     genuinely states "no job openings at this time", not an API gap.
+
+  # --- Found on re-investigation 2026-09-28 (research + independent
+  # live re-verification by me before adding): three of these turned out
+  # to already be on ATS types this tool supports — no new fetcher code
+  # needed at all, same pattern as SpaceX below. ---
+  - name: Rockstar Games Toronto
+    ats: greenhouse
+    slug: rockstargames # shared Rockstar-wide Greenhouse board (47 jobs); filter to
+    # Oakville/Toronto studio postings via location. Found via a bespoke
+    # GraphQL endpoint on rockstargames.com that leaked an apply_href
+    # pointing at boards.greenhouse.io/rockstargames — confirmed live via
+    # the standard public Greenhouse API, 47 jobs, zero auth.
+  - name: Spotify
+    ats: lever
+    slug: spotify # standard public Lever postings API, 80 live jobs, zero auth —
+    # confirmed live 2026-09-28. Found via lifeatspotify.com job-detail
+    # pages' SSR __NEXT_DATA__ blob, which links out to
+    # jobs.lever.co/spotify/<uuid>.
+  - name: Q4 Inc.
+    ats: rippling
+    slug: q4_careers # earlier "Cloudflare-blocked" finding was against a dead
+    # careers.q4inc.com path (plain 404, not actually bot-walled); the real
+    # current portal is careers.q4inc.com/overview which runs on Rippling —
+    # confirmed live 2026-09-28, 6 jobs, zero auth.
+
+  # --- Added 2026-09-28: SpaceX — found via a user-supplied
+  # spacex.com/careers/jobs link; the site's own careers page pulls from
+  # content.spacex.com/cms-assets/job_posts_new.json (a plain, public,
+  # unauthenticated JSON file, no bot-blocking at all), which itself
+  # revealed SpaceX's job board is literally on standard Greenhouse
+  # (each entry has a "board": "https://boards.greenhouse.io/spacex/..."
+  # field) — no bespoke fetcher needed, just the standard "greenhouse"
+  # ats type. This corrects an earlier "fully custom in-house" finding
+  # from the market-cap batch, which only checked spacex.com itself and
+  # never followed this specific JSON file. ---
+  - name: SpaceX
+    ats: greenhouse
+    slug: spacex # 2594 open jobs, 11 Data Engineer-shaped matches confirmed live

@@ -669,7 +669,159 @@ def test_all_new_ats_types_wired_into_fetchers():
         "apple": ats_clients.fetch_apple,
         "shopify": ats_clients.fetch_shopify,
         "meta": ats_clients.fetch_meta,
+        "amazon": ats_clients.fetch_amazon,
+        "ibm": ats_clients.fetch_ibm,
+        "uber": ats_clients.fetch_uber,
     }
     for ats_type, fn in expected.items():
         assert ats_clients.FETCHERS[ats_type] is fn
-    print("FETCHERS: all 12 new ATS types wired in correctly — OK")
+    print("FETCHERS: all 15 new ATS types wired in correctly — OK")
+
+
+# --------------------------------------------------------------------- uber
+
+def test_uber_missing_playwright_degrades_gracefully():
+    # fetch_uber drives a real headless Chromium via Playwright (Uber's
+    # own JSON API is Cloudflare-bot-walled to a plain request) — like
+    # fetch_indeed in aggregator_clients.py, not practical to mock
+    # meaningfully with unittest.mock's fluent locator API, so per that
+    # same established precedent this only tests the "playwright not
+    # installed -> [], no crash" contract; the actual scraping was
+    # verified live (439 real postings, correct title/location/salary/
+    # description parsing from real jobs.uber.com API responses).
+    import sys
+    with patch.dict(sys.modules, {"playwright": None, "playwright.sync_api": None}):
+        jobs = ats_clients.fetch_uber("Uber", "data engineer")
+    assert jobs == []
+    print("fetch_uber: playwright not installed -> [], no crash — OK")
+
+
+def test_uber_bodies_to_jobs_parsing():
+    # _uber_bodies_to_jobs is pure Python (no Playwright), fully mockable —
+    # shape trimmed from a real live response (2026-09-28) against
+    # jobs.uber.com/api/jobs/search/?search=data+engineer.
+    bodies = [{"jobs": [{
+        "Id": "300433",
+        "Title": "Sr Software Engineer - Engineer",
+        "Urls": [{"Culture": "en-us", "Url": "/en/jobs/300433/", "IsDefault": True}],
+        "Locations": [{"City": "San Francisco", "Region": "California", "Country": "United States"}],
+        "DisplayDate": "2026-09-23T23:29:27Z",
+        "Description": "<p>Build data pipelines.</p>",
+        "Salary": {
+            "MinValue": None, "MaxValue": None, "Currency": None, "Period": None,
+            "Description": "The base salary range for this role is USD $202,000 per year - USD $224,000 per year.",
+        },
+    }]}]
+    jobs = ats_clients._uber_bodies_to_jobs(bodies, "Uber")
+
+    assert len(jobs) == 1
+    j = jobs[0]
+    assert j["title"] == "Sr Software Engineer - Engineer"
+    assert j["location"] == "San Francisco, California, United States"
+    assert j["url"] == "https://jobs.uber.com/en/jobs/300433/"
+    assert j["posted_at"] == "2026-09-23T23:29:27Z"
+    assert "Build data pipelines" in j["description"]
+    assert j["salary"] == "USD $202,000 per year - USD $224,000"
+    print("_uber_bodies_to_jobs: parsing, structured-then-text salary fallback — OK")
+
+
+def test_uber_bodies_to_jobs_dedupes_across_pages():
+    bodies = [
+        {"jobs": [{"Id": "1", "Title": "X", "Urls": [{"Url": "/en/jobs/1/", "IsDefault": True}],
+                   "Locations": [], "Description": ""}]},
+        {"jobs": [{"Id": "1", "Title": "X", "Urls": [{"Url": "/en/jobs/1/", "IsDefault": True}],
+                   "Locations": [], "Description": ""}]},
+    ]
+    jobs = ats_clients._uber_bodies_to_jobs(bodies, "Uber")
+    assert len(jobs) == 1
+    print("_uber_bodies_to_jobs: duplicate Id across pages collapsed — OK")
+
+
+# ------------------------------------------------------------------------ ibm
+
+def test_ibm_basic_parsing_and_city_country_dedup():
+    # Real shape confirmed live 2026-09-28: field_keyword_19 is already
+    # "City, CC" (e.g. "Austin, US") — appending the full country name
+    # too without stripping the code first would render as
+    # "Austin, US, United States", which this checks doesn't happen.
+    search_json = {"hits": {"total": {"value": 1}, "hits": [{"_source": {
+        "title": "Data Engineer", "url": "https://careers.ibm.com/careers/JobDetail?jobId=127183",
+        "description": "Build pipelines. Compensation range: $120,000 - $150,000 annually.",
+        "field_keyword_05": "United States", "field_keyword_19": "Austin, US", "field_keyword_17": "Hybrid",
+    }}]}}
+    with patch("httpx.post", return_value=_resp(json_data=search_json)):
+        jobs = ats_clients.fetch_ibm("IBM", "United States/data engineer")
+
+    assert len(jobs) == 1
+    j = jobs[0]
+    assert j["title"] == "Data Engineer"
+    assert j["location"] == "Austin, United States"
+    assert j["url"] == "https://careers.ibm.com/careers/JobDetail?jobId=127183"
+    assert j["salary"] == "$120,000 - $150,000"
+    print("fetch_ibm: basic parsing, city/country-code dedup, salary fallback — OK")
+
+
+def test_ibm_multiple_cities_falls_back_to_country():
+    search_json = {"hits": {"total": {"value": 1}, "hits": [{"_source": {
+        "title": "Data Engineer", "url": "https://careers.ibm.com/careers/JobDetail?jobId=1",
+        "description": "", "field_keyword_05": "United States", "field_keyword_19": "Multiple Cities",
+    }}]}}
+    with patch("httpx.post", return_value=_resp(json_data=search_json)):
+        jobs = ats_clients.fetch_ibm("IBM", "United States/data engineer")
+    assert jobs[0]["location"] == "United States"
+    print("fetch_ibm: \"Multiple Cities\" falls back to just the country — OK")
+
+
+# --------------------------------------------------------------------- amazon
+
+def test_amazon_basic_parsing_country_param_in_request():
+    # Real bug avoided 2026-09-28: the naive/guessable param shape
+    # `country[]=CAN` (array-style) is silently IGNORED by this endpoint —
+    # it still returns worldwide results instead of erroring, so a wrong
+    # param shape here wouldn't fail loudly, it would just quietly return
+    # the wrong country's jobs. The real UI uses a plain `country=CAN`.
+    search_json = {
+        "hits": 1,
+        "jobs": [{
+            "id_icims": "10496221", "title": "Data Engineer II, Alexa Audio",
+            "job_path": "/en/jobs/10496221/data-engineer-ii-alexa-audio",
+            "location": "CA, BC, Vancouver", "city": "Vancouver", "state": "BC", "country_code": "CAN",
+            "posted_date": "August  7, 2026",
+            "description": "Build data pipelines. Compensation: $150,000 - $180,000 salary.",
+            "basic_qualifications": "", "preferred_qualifications": "",
+        }],
+    }
+    seen_params = []
+
+    def _get(url, params=None, **kwargs):
+        seen_params.append(params)
+        return _resp(json_data=search_json)
+
+    with patch("httpx.get", side_effect=_get):
+        jobs = ats_clients.fetch_amazon("Amazon", "CAN/data engineer")
+
+    assert len(jobs) == 1
+    j = jobs[0]
+    assert j["title"] == "Data Engineer II, Alexa Audio"
+    assert j["location"] == "CA, BC, Vancouver"
+    assert j["url"] == "https://www.amazon.jobs/en/jobs/10496221/data-engineer-ii-alexa-audio"
+    assert "Build data pipelines" in j["description"]
+    assert j["salary"] == "$150,000 - $180,000"
+    assert all(p["country"] == "CAN" and "[]" not in str(p) for p in seen_params)
+    print("fetch_amazon: basic parsing + plain (non-array) country param — OK")
+
+
+def test_amazon_dedupes_by_job_id():
+    search_json = {
+        "hits": 1,
+        "jobs": [
+            {"id_icims": "1", "title": "Data Engineer", "job_path": "/en/jobs/1/x",
+             "location": "USA", "description": "", "basic_qualifications": "", "preferred_qualifications": ""},
+            {"id_icims": "1", "title": "Data Engineer", "job_path": "/en/jobs/1/x",
+             "location": "USA", "description": "", "basic_qualifications": "", "preferred_qualifications": ""},
+        ],
+    }
+    with patch("httpx.get", return_value=_resp(json_data=search_json)):
+        jobs = ats_clients.fetch_amazon("Amazon", "USA/data engineer")
+    assert len(jobs) == 1
+    print("fetch_amazon: duplicate id_icims across pages collapsed — OK")
