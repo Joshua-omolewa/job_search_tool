@@ -132,7 +132,7 @@ aggregators:
       keywords: "data engineer"
       location: "Canada"
       time_range: "r604800"   # r86400 = 24h, r604800 = 7d, r2592000 = 30d
-      max_pages: 2            # 10 results/page
+      max_pages: 5            # 10 results/page = 50 results
     notes: >
       No auth needed — LinkedIn's own public "Guest API"
       (jobs-guest/jobs/api/seeMoreJobPostings/search), the same
@@ -142,7 +142,11 @@ aggregators:
       Nasdaq, Senior Data Engineer @ HelloFresh, ...). Undocumented/
       unofficial, like Workday's CXS or Gem's GraphQL API in
       ats_clients.py — could change or start rate-limiting without notice;
-      keep max_pages modest.
+      keep max_pages modest. max_pages raised 2 -> 5 on 2026-09-27: the
+      real pool for this query is well over 120 (confirmed live — pages
+      kept coming back full at max_pages=12, no drop-off), so 2 pages (20
+      results) was leaving real postings unfetched; 5 (50 results) is a
+      deliberate middle ground, not the true ceiling.
 
   - name: LinkedIn (Canada, Data Platform Engineer)
     type: linkedin
@@ -150,7 +154,7 @@ aggregators:
       keywords: "data platform engineer"
       location: "Canada"
       time_range: "r604800"
-      max_pages: 2
+      max_pages: 5
     notes: >
       Added 2026-09-27 — corrects an earlier assumption that LinkedIn's own
       relevance ranking surfaced Data Platform Engineer roles under the
