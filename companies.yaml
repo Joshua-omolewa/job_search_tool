@@ -1764,6 +1764,28 @@ companies:
   #   - Canadian Digital Service: digital.canada.ca/jobs is plain
   #     server-rendered static HTML with zero XHR beyond analytics —
   #     genuinely states "no job openings at this time", not an API gap.
+  #   - OpenText: careers.opentext.com's search-results page DOES embed
+  #     real job data server-side (`phApp.ddo` JSON in the HTML, a
+  #     Phenom People deployment), but ONLY the same fixed 10 jobs (of
+  #     367 total) every single time — confirmed by repeated identical
+  #     requests returning identical jobIds in identical order (a stable
+  #     default sort, not a rotating/random sample), and every
+  #     query-param guess tried (country/ddo_country/ddo_keywords/from)
+  #     either had no effect or produced identical results, ruling out
+  #     a false-early "it works" read. A live Playwright capture of the
+  #     page's OWN real search widget found the actual request it makes
+  #     (POST /widgets, ddoKey "eagerLoadRefineSearchSession", real
+  #     `from`/`size` pagination params) — but replaying it plain, or
+  #     even with a real session cookie AND its embedded JWT csrfToken
+  #     echoed back under several plausible header names, still returns
+  #     `{"tokenAvailable":false}`, meaning there's a further
+  #     session-establishment step not yet reverse-engineered. Given the
+  #     real reachable data is a PERMANENTLY fixed 10-job subset (not a
+  #     capped-but-complete or growing window, unlike this file's other
+  #     capped fetchers) and none of those 10 are Data-Engineer-shaped
+  #     right now, this isn't worth adding as-is — flagging the
+  #     `eagerLoadRefineSearchSession` lead here in case a future pass
+  #     wants to chase the session handshake further.
 
   # --- Found on re-investigation 2026-09-28 (research + independent
   # live re-verification by me before adding): three of these turned out
