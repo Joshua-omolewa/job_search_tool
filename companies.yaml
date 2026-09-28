@@ -1449,6 +1449,9 @@ companies:
   - name: DoorDash
     ats: greenhouse
     slug: doordashusa # 459 jobs
+  - name: DoorDash Canada
+    ats: greenhouse
+    slug: doordashcanada # added 2026-09-28 — separate Greenhouse board from the US one above, not just a location filter on the same board. 34 open jobs (Engineering Manager, Data Scientist, and DashMart/ops roles) — 0 currently match the Data Engineer title filter, board is real/live
   - name: GitLab
     ats: greenhouse
     slug: gitlab # 199 jobs
