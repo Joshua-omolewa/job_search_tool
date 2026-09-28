@@ -26,7 +26,7 @@ def main():
     # re-suggested, even with a different display-name casing from Adzuna ---
     known = discover_companies.load_known_keys(TEST_YAML)
     assert ("greenhouse", "affirm") in known
-    assert ("workable", "treewalk") in known
+    assert ("workable", "treewalk-accounting") in known
     print(f"load_known_keys OK: {len(known)} pairs loaded")
 
     discovered = [
