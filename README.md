@@ -19,17 +19,23 @@ is sent to a third party beyond fetching the postings themselves.
 
 1. **Fetch** (`app/main.py`) — pulls open roles from:
    - `companies.yaml` — known companies queried directly via their ATS.
-     22 ATS types supported, from mainstream ones with a clean public API
+     31 ATS types supported, from mainstream ones with a clean public API
      (Greenhouse, Ashby, Workable, Lever, SmartRecruiters, Workday,
      BambooHR, Rippling, Teamtailor, Gem) to enterprise platforms
      (Oracle Cloud Recruiting, SAP SuccessFactors, iCIMS, Eightfold,
-     Cornerstone OnDemand), HTML-only portals with no API at all (Avature,
-     HRDepartment), and a handful of large companies' own custom career
-     sites reverse-engineered individually (Google, Apple, Meta, Shopify,
-     gr8people) — precise, low noise either way.
+     Cornerstone OnDemand, UKG/UltiPro), HTML-only portals with no API at
+     all (Avature, HRDepartment, the Humi hosted-careers-page product),
+     multi-tenant career-site SaaS products (Ongig, Kula.ai), and a
+     handful of large companies' own custom career sites reverse-engineered
+     individually (Google, Apple, Meta, Shopify, Amazon, IBM, Uber,
+     Atlassian, TikTok, gr8people) — precise, low noise either way.
+     Company fetches run concurrently (a thread pool, default 10 workers —
+     see `--workers` below), since with 400+ companies configured, fetching
+     one at a time was itself the bottleneck on a full run.
    - `aggregators.yaml` — broad keyword+location search across many
      employers at once (Adzuna, Remotive, RemoteOK, Jobicy,
-     WeWorkRemotely, LinkedIn, Indeed) — wider reach, more noise.
+     WeWorkRemotely, LinkedIn, Indeed) — wider reach, more noise. Also
+     fetched concurrently, same thread pool.
 2. **Filter** (`app/filters.py`) — drops anything that isn't an
    engineering-shaped title, isn't in an allowed location, or whose JD
    requires a stack you've excluded.
@@ -217,11 +223,13 @@ Thin wrappers over the commands above — run from the repo root:
 
 - **`companies.yaml`** — the company registry (name, ATS type, slug). Add
   a company here once you've identified its ATS — see the file's header
-  comment for all 22 supported ATS types' slug formats (Greenhouse, Ashby,
+  comment for all 31 supported ATS types' slug formats (Greenhouse, Ashby,
   Workable, Lever, SmartRecruiters, Workday, BambooHR, Rippling,
   Teamtailor, Gem, Oracle Cloud Recruiting, SAP SuccessFactors, iCIMS,
-  Eightfold, Cornerstone OnDemand, Avature, HRDepartment, gr8people, and
-  Google/Apple/Meta/Shopify's own custom career sites).
+  Eightfold, Cornerstone OnDemand, Avature, HRDepartment, gr8people,
+  UKG/UltiPro, Kula.ai, Ongig, the Humi hosted-careers-page platform, and
+  Google/Apple/Meta/Shopify/Amazon/IBM/Uber/Atlassian/TikTok's own custom
+  career sites).
 - **`aggregators.yaml`** — aggregator search config (keywords, location,
   pagination limits) across Adzuna, Remotive, RemoteOK, Jobicy,
   WeWorkRemotely, LinkedIn, and Indeed. Only Adzuna needs auth (a free
@@ -252,6 +260,7 @@ app/
   main.py                 orchestrates fetch -> filter -> dedup -> candidates.csv
   ats_clients.py           one fetch function per ATS
   aggregator_clients.py    one fetch function per aggregator
+  playwright_lock.py       shared lock serializing every Playwright-based fetcher (see Notes on scope)
   filters.py               loads and applies filters.yaml's rules
   dedup.py                 SQLite store (seen_jobs, job_details)
   discover_companies.py    auto-appends newly-resolved companies to companies.yaml
@@ -308,12 +317,39 @@ None of them call live external APIs.
   undocumented internal API or an HTML scrape, so treat them with the same
   "verify a new company before trusting it" caution as Workday/Gem above —
   see the CONFIDENCE NOTES in `app/ats_clients.py`'s module docstring and
-  `companies.yaml`'s header comment for the full detail per type. IBM was
-  checked and could not be added (hard AWS-WAF-blocked); a gr8people
-  company can be added but its real customer's tenant (Electronic Arts, in
-  the one case checked) may block requests from your own network — see the
-  "Checked and deliberately NOT added" note above the Google/Apple/
-  Meta/Shopify entries in `companies.yaml`.
+  `companies.yaml`'s header comment for the full detail per type.
+- 9 more ATS types were added 2026-09-28 (Amazon, IBM, Uber, Atlassian,
+  Kula.ai, UKG/UltiPro, the Humi hosted-careers-page platform, TikTok,
+  Ongig) while re-investigating ~20 previously-excluded companies —
+  IBM's own site (`careers.ibm.com`) is still hard AWS-WAF-blocked, but
+  its real search backend (`www-api.ibm.com/search/api/v2`) isn't, and
+  works unauthenticated; Electronic Arts (previously excluded — its old
+  gr8people tenant, `ea.gr8people.com`, blocked requests from outside its
+  network) has since migrated its whole careers site to Avature on a
+  custom domain (`jobs.ea.com`), which `fetch_avature` now supports
+  alongside the usual `{tenant}.avature.net` pattern. Kula.ai, UKG/UltiPro,
+  Ongig, and the Humi platform are each a multi-tenant career-site
+  product used by more than one company (same shape as Avature/
+  HRDepartment above) — the fetcher is generic per platform, so adding
+  another company already on one of these is just a new `companies.yaml`
+  entry with that company's own tenant/account id, no new code needed.
+- Every Playwright-based fetcher (Uber, Indeed, and Adzuna's headless-
+  browser fallback for job pages it can't otherwise reach) shares one
+  lock (`app/playwright_lock.py`) so only one browser session ever runs
+  at a time, globally — Playwright's sync API isn't safe for concurrent
+  use across threads, which only matters now that companies/aggregators
+  fetch concurrently (see above); without it, multiple Playwright-based
+  fetches running at once visibly stalled a real run.
+- A 429 from an ATS's API is treated as a transient rate limit, not a
+  real failure — `_request_with_retry` in `app/ats_clients.py` retries
+  with capped exponential backoff (honoring a `Retry-After` header up to
+  a hard ceiling, so a server can't force an unbounded wait), currently
+  wired into Workday's three request call sites. This started mattering
+  once companies fetch concurrently: several Workday tenants share the
+  same backend CDN even though they're different companies' own boards,
+  and a burst of concurrent requests spread across different companies
+  was enough to trip a shared rate limiter that a one-at-a-time run never
+  hit.
 - Workday's fetcher parallelizes both list-page pagination and per-job
   detail requests, since a large board (thousands of postings) made of
   sequential one-at-a-time requests was slow enough to matter in practice.
