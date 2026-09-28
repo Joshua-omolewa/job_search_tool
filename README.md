@@ -158,6 +158,7 @@ python -m app.main                    # all companies + aggregators
 python -m app.main --company affirm   # just one company, for debugging a fetcher
 python -m app.main --skip-aggregators # companies.yaml only
 python -m app.main --skip-companies   # aggregators.yaml only
+python -m app.main --workers 20       # more/fewer concurrent fetches (default 10)
 
 make run                              # same thing, interactive prompts instead of flags
 ```

@@ -16,12 +16,27 @@ Usage (run from the repo root):
     python -m app.main --company affirm      # just one company, for debugging
     python -m app.main --skip-aggregators    # companies.yaml only
     python -m app.main --skip-companies      # aggregators.yaml only
+    python -m app.main --workers 20          # more/fewer concurrent fetches (default 10)
 
 Or `make run` for an interactive prompt instead of remembering flags.
+
+Company/aggregator FETCHES run concurrently (a thread pool, since every
+fetcher here is I/O-bound network calls, not CPU-bound work) — with 400+
+companies in companies.yaml, one at a time was the actual bottleneck on a
+full run (tens of minutes). DB writes (dedup + job_details, via
+process_jobs) stay strictly single-threaded on the main thread using the
+one shared sqlite3 connection from dedup.connect() — sqlite3.Connection
+objects aren't safe to share across threads, so only the network fetch
+itself (ats_clients.fetch_company / aggregator_clients.fetch_aggregator)
+runs in a worker thread; each one's result is handed back to the main
+thread before touching the DB. Progress lines print as each fetch
+completes, not in companies.yaml's file order — expected with
+concurrency, not a bug.
 """
 import argparse
 import csv
 import sys
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 import yaml
@@ -34,6 +49,7 @@ from app import discover_companies
 from app import filters
 load_dotenv()
 OUTPUT_CSV = Path("data/candidates.csv")
+DEFAULT_WORKERS = 10
 
 
 def load_yaml_list(path: str, key: str) -> list[dict]:
@@ -60,32 +76,52 @@ def process_jobs(jobs: list[dict], conn) -> list[dict]:
     return kept
 
 
-def run(companies: list[dict], aggregators: list[dict]) -> list[dict]:
+def _fetch_source(source: dict, fetch_fn) -> tuple[dict, list[dict] | None, Exception | None]:
+    """Runs in a worker thread — network I/O only, no DB access (that
+    stays on the main thread, see `run`). Exceptions are returned rather
+    than raised so one source's failure can't take down the whole pool or
+    get silently swallowed by ThreadPoolExecutor."""
+    try:
+        return source, fetch_fn(source), None
+    except Exception as e:
+        return source, None, e
+
+
+def _run_sources(sources: list[dict], fetch_fn, conn, workers: int) -> tuple[int, list[dict]]:
+    fetched = 0
+    candidates = []
+    if not sources:
+        return fetched, candidates
+
+    with ThreadPoolExecutor(max_workers=max(1, workers)) as pool:
+        futures = [pool.submit(_fetch_source, source, fetch_fn) for source in sources]
+        for future in as_completed(futures):
+            source, jobs, err = future.result()
+            if err is not None:
+                print(f"[WARN] {source['name']}: fetch failed — {err}", file=sys.stderr)
+                continue
+            fetched += len(jobs)
+            # Dedup/job_details writes happen here, back on the main
+            # thread, one source's results at a time — `conn` (a
+            # sqlite3.Connection) is never touched from a worker thread.
+            kept = process_jobs(jobs, conn)
+            candidates.extend(kept)
+            print(f"{source['name']:40s} fetched={len(jobs):4d}  new_candidates={len(kept):3d}")
+    return fetched, candidates
+
+
+def run(companies: list[dict], aggregators: list[dict], workers: int = DEFAULT_WORKERS) -> list[dict]:
     all_fetched = 0
     all_candidates = []
 
     with dedup.connect() as conn:
-        for company in companies:
-            try:
-                jobs = ats_clients.fetch_company(company)
-            except Exception as e:
-                print(f"[WARN] {company['name']}: fetch failed — {e}", file=sys.stderr)
-                continue
-            all_fetched += len(jobs)
-            kept = process_jobs(jobs, conn)
-            all_candidates.extend(kept)
-            print(f"{company['name']:40s} fetched={len(jobs):4d}  new_candidates={len(kept):3d}")
+        fetched, candidates = _run_sources(companies, ats_clients.fetch_company, conn, workers)
+        all_fetched += fetched
+        all_candidates.extend(candidates)
 
-        for aggregator in aggregators:
-            try:
-                jobs = aggregator_clients.fetch_aggregator(aggregator)
-            except Exception as e:
-                print(f"[WARN] {aggregator['name']}: fetch failed — {e}", file=sys.stderr)
-                continue
-            all_fetched += len(jobs)
-            kept = process_jobs(jobs, conn)
-            all_candidates.extend(kept)
-            print(f"{aggregator['name']:40s} fetched={len(jobs):4d}  new_candidates={len(kept):3d}")
+        fetched, candidates = _run_sources(aggregators, aggregator_clients.fetch_aggregator, conn, workers)
+        all_fetched += fetched
+        all_candidates.extend(candidates)
 
     print(f"\nTotal fetched: {all_fetched}  |  Total new candidates after filters+dedup: {len(all_candidates)}")
     return all_candidates
@@ -116,6 +152,8 @@ if __name__ == "__main__":
     parser.add_argument("--skip-companies", action="store_true")
     parser.add_argument("--skip-discovery", action="store_true",
                          help="Don't auto-append newly-resolved Greenhouse/Lever companies to companies.yaml")
+    parser.add_argument("--workers", type=int, default=DEFAULT_WORKERS,
+                         help=f"Concurrent fetches in flight at once (default {DEFAULT_WORKERS})")
     args = parser.parse_args()
 
     companies = [] if args.skip_companies else load_yaml_list("companies.yaml", "companies")
@@ -127,7 +165,7 @@ if __name__ == "__main__":
         if not companies:
             sys.exit(f"No company with slug '{args.company}' in companies.yaml")
 
-    candidates = run(companies, aggregators)
+    candidates = run(companies, aggregators, workers=args.workers)
     write_csv(candidates)
     print(f"Wrote {len(candidates)} new candidates to {OUTPUT_CSV}")
 

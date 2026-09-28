@@ -19,6 +19,8 @@ Run with: python -m pytest app/tests/test_new_ats_platforms.py
 import json
 from unittest.mock import patch, MagicMock
 
+import httpx
+
 from app import ats_clients
 
 
@@ -26,6 +28,15 @@ def _resp(json_data=None, text=None, status_code=200, content=None):
     resp = MagicMock()
     resp.status_code = status_code
     resp.raise_for_status = MagicMock()
+    if status_code >= 400:
+        # A real httpx response only raises on .raise_for_status() when
+        # asked to — this MagicMock needs the same wired up explicitly,
+        # or a mocked "error" response would silently behave like a
+        # success everywhere (the default for every OTHER _resp() caller
+        # in this file, which never sets a >=400 status_code).
+        resp.raise_for_status.side_effect = httpx.HTTPStatusError(
+            f"{status_code} error", request=MagicMock(), response=resp
+        )
     if json_data is not None:
         resp.json = MagicMock(return_value=json_data)
     if text is not None:
@@ -33,7 +44,63 @@ def _resp(json_data=None, text=None, status_code=200, content=None):
     if content is not None:
         resp.content = content
     resp.cookies = {}
+    resp.headers = {}
     return resp
+
+
+# ---------------------------------------------------------- _request_with_retry
+
+def test_request_with_retry_retries_on_429_then_succeeds():
+    # Real bug caught live 2026-09-28: once app/main.py started fetching
+    # companies concurrently, several Workday tenants returned 429 where
+    # a sequential run never had (shared backend CDN across tenants) —
+    # this checks the retry actually recovers instead of losing the
+    # company entirely.
+    responses = [_resp(status_code=429), _resp(json_data={"ok": True}, status_code=200)]
+    with patch("httpx.get", side_effect=responses) as mock_get, \
+         patch("app.ats_clients.time.sleep") as mock_sleep:
+        resp = ats_clients._request_with_retry("GET", "https://example.com/jobs")
+    assert resp.json() == {"ok": True}
+    assert mock_get.call_count == 2
+    mock_sleep.assert_called_once()
+    print("_request_with_retry: retries once on 429, then succeeds — OK")
+
+
+def test_request_with_retry_respects_retry_after_header():
+    resp_429 = _resp(status_code=429)
+    resp_429.headers = {"Retry-After": "3"}
+    responses = [resp_429, _resp(json_data={"ok": True}, status_code=200)]
+    with patch("httpx.get", side_effect=responses), \
+         patch("app.ats_clients.time.sleep") as mock_sleep:
+        ats_clients._request_with_retry("GET", "https://example.com/jobs")
+    slept_for = mock_sleep.call_args.args[0]
+    assert 3 <= slept_for < 3.5  # Retry-After=3 plus up to 0.5s jitter
+    print("_request_with_retry: honors Retry-After header — OK")
+
+
+def test_request_with_retry_exhausts_retries_and_raises():
+    with patch("httpx.get", return_value=_resp(status_code=429)) as mock_get, \
+         patch("app.ats_clients.time.sleep"):
+        try:
+            ats_clients._request_with_retry("GET", "https://example.com/jobs", max_retries=2)
+            assert False, "expected an exception after exhausting retries"
+        except Exception:
+            pass
+    assert mock_get.call_count == 3  # initial attempt + 2 retries
+    print("_request_with_retry: raises after exhausting retries on persistent 429 — OK")
+
+
+def test_request_with_retry_no_retry_on_non_429_error():
+    with patch("httpx.post", return_value=_resp(status_code=500)) as mock_post, \
+         patch("app.ats_clients.time.sleep") as mock_sleep:
+        try:
+            ats_clients._request_with_retry("POST", "https://example.com/jobs")
+            assert False, "expected an exception on a 500"
+        except Exception:
+            pass
+    assert mock_post.call_count == 1  # no retry for a real server error, not a rate limit
+    mock_sleep.assert_not_called()
+    print("_request_with_retry: does not retry a non-429 error — OK")
 
 
 # ---------------------------------------------------------------- oraclecloud

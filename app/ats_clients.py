@@ -149,7 +149,9 @@ you've confirmed it yourself.
 """
 import html
 import json
+import random
 import re
+import time
 import urllib.parse
 import xml.etree.ElementTree as ET
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -163,6 +165,38 @@ USER_AGENT = "job-search-pipeline/0.1 (personal use)"
 TIMEOUT = 20.0
 
 _MULTI_LOCATION_RE = re.compile(r"^\d+\s+Locations?$", re.IGNORECASE)
+
+
+def _request_with_retry(method: str, url: str, max_retries: int = 4, **kwargs) -> httpx.Response:
+    """A 429 is a transient, recoverable condition (the server explicitly
+    saying "back off"), not a real failure — retries with exponential
+    backoff + jitter, honoring a Retry-After header when the server sends
+    one. Added 2026-09-28 after app/main.py started fetching companies
+    concurrently (previously one at a time): several Workday tenants
+    started returning 429 where a sequential run never had, even though
+    they're different companies' own boards — they share Workday's
+    backend CDN/infra, so a burst of concurrent requests spread across
+    DIFFERENT companies can still trip one shared rate limiter. Any other
+    status (4xx/5xx) is NOT retried — those are real errors, not backoff
+    signals, and every caller here already treats a raised exception as
+    a normal "skip this posting/company" outcome via its own try/except.
+    """
+    # Dispatches to httpx.get/httpx.post (NOT httpx.request) specifically
+    # so this is a drop-in replacement at every existing call site — every
+    # test in this project mocks the module-level httpx.get/httpx.post
+    # functions directly (patch("httpx.get", ...)), not httpx.request.
+    request_fn = getattr(httpx, method.lower())
+    resp = None
+    for attempt in range(max_retries + 1):
+        resp = request_fn(url, **kwargs)
+        if resp.status_code == 429 and attempt < max_retries:
+            retry_after = resp.headers.get("Retry-After", "")
+            delay = float(retry_after) if retry_after.replace(".", "", 1).isdigit() else (2 ** attempt)
+            time.sleep(delay + random.uniform(0, 0.5))
+            continue
+        break
+    resp.raise_for_status()
+    return resp
 
 
 def _epoch_millis_to_iso(ms: int | None) -> str | None:
@@ -588,12 +622,12 @@ def _fetch_workday_detail(base_url: str, external_path: str) -> dict:
     live on NVIDIA — "The base salary range is 224,000 USD - 356,500 USD
     for Level 3...") — worth the scan."""
     try:
-        resp = httpx.get(
+        resp = _request_with_retry(
+            "GET",
             f"{base_url}{external_path}",
             headers={"User-Agent": USER_AGENT, "Accept": "application/json"},
             timeout=TIMEOUT,
         )
-        resp.raise_for_status()
         info = resp.json().get("jobPostingInfo") or {}
         locations = [info["location"]] if info.get("location") else []
         locations += info.get("additionalLocations") or []
@@ -613,13 +647,13 @@ _WORKDAY_LIST_WORKERS = 8
 
 
 def _fetch_workday_page(base: str, offset: int, limit: int) -> list[dict]:
-    resp = httpx.post(
+    resp = _request_with_retry(
+        "POST",
         f"{base}/jobs",
         json={"appliedFacets": {}, "limit": limit, "offset": offset, "searchText": ""},
         headers={"User-Agent": USER_AGENT, "Accept": "application/json"},
         timeout=TIMEOUT,
     )
-    resp.raise_for_status()
     return resp.json().get("jobPostings", [])
 
 
@@ -633,13 +667,13 @@ def _fetch_all_workday_postings(base: str) -> list[dict]:
     (treated as unknown, not zero) — slower, but exactly as correct as
     the walk always was."""
     limit = 20  # hard page size — CXS silently returns an empty page above this
-    resp = httpx.post(
+    resp = _request_with_retry(
+        "POST",
         f"{base}/jobs",
         json={"appliedFacets": {}, "limit": limit, "offset": 0, "searchText": ""},
         headers={"User-Agent": USER_AGENT, "Accept": "application/json"},
         timeout=TIMEOUT,
     )
-    resp.raise_for_status()
     first_page_json = resp.json()
     first_page = first_page_json.get("jobPostings", [])
     if len(first_page) < limit:
