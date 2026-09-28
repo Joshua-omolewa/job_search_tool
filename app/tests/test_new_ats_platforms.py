@@ -505,21 +505,77 @@ def _apple_hydration_html(search_results, total):
 
 
 def test_apple_parses_search_results():
+    # Real shape confirmed live 2026-09-27: `name` is the bare city only
+    # ("Austin") — country lives in a SEPARATE `countryName` field on the
+    # same object. Both must end up in the built location string.
     result = {
-        "postingTitle": "Data Engineer", "locations": [{"name": "Austin, TX, United States"}],
+        "postingTitle": "Data Engineer",
+        "locations": [{"name": "Austin", "countryName": "United States of America"}],
         "positionId": "200661302", "transformedPostingTitle": "data-engineer",
         "postDateInGMT": "2026-09-27T14:34:25Z", "jobSummary": "Build data pipelines.",
     }
     html = _apple_hydration_html([result], total=1)
     with patch("httpx.get", return_value=_resp(text=html)):
-        jobs = ats_clients.fetch_apple("Apple", "united-states-USA")
+        jobs = ats_clients.fetch_apple("Apple", "en-us/united-states-USA")
 
     assert len(jobs) == 1
     j = jobs[0]
     assert j["title"] == "Data Engineer"
-    assert j["location"] == "Austin, TX, United States"
+    assert j["location"] == "Austin, United States of America"
     assert j["url"] == "https://jobs.apple.com/en-us/details/200661302/data-engineer"
     assert j["description"] == "Build data pipelines."
+
+
+def test_apple_location_includes_country_for_filters_to_match():
+    # Real bug caught live 2026-09-27: every Apple posting's `locations[].name`
+    # is JUST the city ("Cupertino", "Austin") with no state/country at
+    # all — filters.location_is_allowed only ever matches a country/
+    # province marker ("united states", "canada", ", on", ...), never a
+    # bare city name, so EVERY Apple job was silently failing the location
+    # filter and 0 jobs ever made it through the real pipeline, even though
+    # dozens of real Data Engineer-titled postings existed. Appending the
+    # separate `countryName` field is what fixes it.
+    from app import filters
+
+    result = {
+        "postingTitle": "Data Engineer",
+        "locations": [{"name": "Cupertino", "countryName": "United States of America"}],
+        "positionId": "1", "transformedPostingTitle": "data-engineer",
+        "postDateInGMT": None, "jobSummary": "",
+    }
+    html = _apple_hydration_html([result], total=1)
+    with patch("httpx.get", return_value=_resp(text=html)):
+        jobs = ats_clients.fetch_apple("Apple", "en-us/united-states-USA")
+
+    assert filters.location_is_allowed(jobs[0]["location"])
+    print("fetch_apple: location string includes country so filters.location_is_allowed matches — OK")
+
+
+def test_apple_slug_selects_locale_path_not_just_query_param():
+    # Real bug caught live 2026-09-27: Apple partitions results by LOCALE
+    # PATH (/en-us/search vs /en-ca/search) — a Canada-shaped location on
+    # the US path silently returns 0, not Canada's results. The slug format
+    # is "{locale}/{location}"; this asserts the locale actually ends up in
+    # the request path, not just carried around unused.
+    result = {
+        "postingTitle": "Data Engineer",
+        "locations": [{"name": "Toronto", "countryName": "Canada"}],
+        "positionId": "1", "transformedPostingTitle": "data-engineer",
+        "postDateInGMT": None, "jobSummary": "",
+    }
+    html = _apple_hydration_html([result], total=1)
+    seen_urls = []
+
+    def _get(url, **kwargs):
+        seen_urls.append(url)
+        return _resp(text=html)
+
+    with patch("httpx.get", side_effect=_get):
+        jobs = ats_clients.fetch_apple("Apple", "en-ca/canada-CANC")
+
+    assert seen_urls and all(u == "https://jobs.apple.com/en-ca/search" for u in seen_urls)
+    assert jobs[0]["location"] == "Toronto, Canada"
+    print("fetch_apple: locale from slug drives the request path (/en-ca/search) — OK")
     print("fetch_apple: hydration-data parsing via recursive key search — OK")
 
 

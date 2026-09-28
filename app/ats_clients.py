@@ -1734,7 +1734,18 @@ def _apple_results_to_jobs(results: list, company_display_name: str) -> list[dic
     for r in results:
         title = r.get("postingTitle", "")
         locations = r.get("locations") or []
-        location = ", ".join(loc.get("name", "") for loc in locations if loc.get("name"))
+        # `name` alone is just the city ("Cupertino", "Austin") with no
+        # state/country — confirmed live 2026-09-27 that EVERY Apple
+        # posting's location string was failing filters.location_is_allowed
+        # as a result, since that only ever matches on a country/province
+        # marker ("united states", "canada", ", on", etc.), never a bare
+        # city name alone. `countryName` ("United States of America") is a
+        # separate field on the same location object — appending it is
+        # what makes a real US posting actually pass the filter.
+        location = ", ".join(
+            ", ".join(p for p in (loc.get("name"), loc.get("countryName")) if p)
+            for loc in locations if loc.get("name")
+        )
         position_id = r.get("positionId", "")
         path_title = r.get("transformedPostingTitle", "")
         if not position_id or not title:
@@ -1758,23 +1769,30 @@ _APPLE_PAGE_SIZE = 20  # observed page size, confirmed live 2026-09-27
 def fetch_apple(company_display_name: str, slug: str) -> list[dict]:
     # Apple's careers site (jobs.apple.com) has no third-party ATS — see
     # _apple_parse_hydration for how job data is reached without auth.
-    # `slug` is the `location` query param Apple's own site uses (e.g.
-    # "united-states-USA"). Confirmed live 2026-09-27, no rate-limiting hit
-    # across 10 rapid requests. Only the short listing-page `jobSummary` is
-    # used as description here (no per-job detail fetch) to keep this
-    # fetcher's request volume bounded — Apple's board is large and a full
-    # per-job fetch would be a lot of extra requests for a company with no
-    # salary data available either way; title/location filtering is
-    # unaffected, only the JD-based stack-dealbreaker check runs on a
-    # shorter text than usual.
+    # `slug` is "{locale}/{location}" — Apple partitions results by LOCALE
+    # PATH, not just the `location` query param: /en-us/search only ever
+    # returns US results (even a Canada-shaped location value on that path
+    # returns 0) and /en-ca/search only ever returns Canada results, each
+    # with its own location-slug format (confirmed live 2026-09-27:
+    # "en-us/united-states-USA" vs "en-ca/canada-CANC" — note "CANC" not
+    # "CAN"). This was missed initially (hardcoded to /en-us/search), which
+    # meant a Canada entry using a Canada-shaped location on that path
+    # would have silently returned nothing rather than erroring.
+    locale, _, location = slug.partition("/")
+    # Only the short listing-page `jobSummary` is used as description here
+    # (no per-job detail fetch) to keep this fetcher's request volume
+    # bounded — Apple's board is large and a full per-job fetch would be a
+    # lot of extra requests for a company with no salary data available
+    # either way; title/location filtering is unaffected, only the
+    # JD-based stack-dealbreaker check runs on a shorter text than usual.
     #
     # totalRecords on page 1 drives concurrent fetching of the rest, same
     # idea as fetch_google/fetch_workday — a broad location like "United
     # States" is thousands of postings across ~200+ pages.
     def _fetch_page_search_data(page_num: int) -> dict:
         resp = httpx.get(
-            "https://jobs.apple.com/en-us/search",
-            params={"location": slug, "page": page_num},
+            f"https://jobs.apple.com/{locale}/search",
+            params={"location": location, "page": page_num},
             headers={"User-Agent": USER_AGENT},
             timeout=TIMEOUT,
         )

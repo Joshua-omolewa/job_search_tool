@@ -61,12 +61,23 @@
 #     sanminacareers.mua.hrdepartment.com).
 #   - gr8people's slug is the tenant subdomain, e.g. "ea" for
 #     ea.gr8people.com.
-#   - google's and apple's slugs are the `location` query param each
-#     site's own search uses to scope results server-side (Google's board
-#     is huge and worldwide, so this keeps a fetch to a relevant subset,
-#     the same way aggregators.yaml's `where` scopes Adzuna) — e.g.
-#     "United States" for Google, "united-states-USA" for Apple (Apple's
-#     own location-slug format, read off its search page's URL).
+#   - google's slug is the `location` query param its search uses to scope
+#     results server-side (Google's board is huge and worldwide, so this
+#     keeps a fetch to a relevant subset, the same way aggregators.yaml's
+#     `where` scopes Adzuna) — e.g. "United States". A separate entry is
+#     needed per country/region you want covered (Google's own location
+#     query only accepts one value, no combined "US+Canada" form found).
+#   - apple's slug is "{locale}/{location}" — Apple partitions results by
+#     LOCALE PATH (e.g. /en-us/search vs /en-ca/search), not just a query
+#     param: a Canada-shaped location value on the /en-us/ path returns 0,
+#     not Canada's real results — confirmed live 2026-09-27, this was
+#     missed on the first pass and meant Apple silently returned 0 US
+#     candidates too (see ats_clients.fetch_apple's comment for the
+#     related location-string bug this was found alongside). Each
+#     locale+location pair needs its own companies.yaml entry, same
+#     reasoning as Google above — e.g. "en-us/united-states-USA" and
+#     "en-ca/canada-CANC" (note Apple's own Canada location code is
+#     "CANC", not "CAN").
 #   - shopify's and meta's slugs are unused by the fetcher itself
 #     (single-company fetchers), but still need a real, non-empty value
 #     (e.g. "shopify") rather than being left blank — a blank value parses
@@ -1303,7 +1314,10 @@ companies:
     slug: United States
   - name: Apple
     ats: apple
-    slug: united-states-USA
+    slug: en-us/united-states-USA # corrected 2026-09-27: slug is now "{locale}/{location}" — Apple partitions results by locale PATH (/en-us/search), not just the location query param; see ats_clients.fetch_apple's comment
+  - name: Apple (Canada)
+    ats: apple
+    slug: en-ca/canada-CANC # added 2026-09-27 — separate locale path from the US entry above; 29 total postings, 0 currently Data-Engineer-relevant (mostly retail), board is real/live
   - name: Shopify
     ats: shopify
     slug: shopify # unused by the fetcher itself, but a blank slug parses as YAML null and silently breaks `--company <slug>` debugging (main.py matches by exact slug) — set to something real instead
