@@ -4,7 +4,7 @@
 #   | "oraclecloud" | "successfactors" | "icims" | "eightfold" | "cornerstone"
 #   | "avature" | "hrdepartment" | "gr8people" | "google" | "apple" | "shopify"
 #   | "meta" | "amazon" | "ibm" | "uber" | "atlassian" | "kula" | "ukg_ultipro"
-#   | "humi_platform" | "tiktok"
+#   | "humi_platform" | "tiktok" | "ongig"
 # slug: the identifier used in that ATS's public API URL
 #   - workday is the odd one out: slug is "{tenant}.wd{N}/{site}", read off
 #     the company's careers URL — e.g.
@@ -170,6 +170,22 @@
 #     plausible but are silently ignored, same param-name-guessing trap
 #     as Amazon's country[] vs country. No structured salary field
 #     populated on any posting sampled, only the free-text fallback.
+#   - ongig's slug is "{host}/{group_id}" — {host} is the tenant's jobs
+#     subdomain (e.g. "jobs.elastic.co"), {group_id} is that tenant's own
+#     numeric id within Ongig's shared multi-tenant search index (e.g.
+#     1509 for Elastic) — found via a browser network trace on that
+#     tenant's own site, not guessable/reusable across tenants without
+#     that lookup step. Added 2026-09-28. Ongig is a multi-tenant
+#     career-site SaaS product whose search backend happens to be built
+#     on Elastic's OWN Enterprise/App Search product (confirmed via a
+#     CSP header) — so Elastic itself is, amusingly, searched via
+#     Elastic's own tech, just operated by a third-party vendor. KNOWN
+#     LIMITATION: the per-job detail URL (jobs.{host}/jobs/{id}) is a
+#     client-rendered SPA route — a plain httpx GET gets a meta-refresh-
+#     to-homepage shell, not real content (confirmed live) — so it's
+#     best-effort for a real browser, not verified to resolve without
+#     one. Full description comes from the search response's own
+#     `content` field directly, no detail fetch needed regardless.
 #
 # The list below is the original author's real target list (Alberta/Canada
 # tech companies), kept as-is as a working example of the format. Add or
@@ -1835,3 +1851,9 @@ companies:
     slug: data engineer # 1725 postings match this keyword server-side (of 4258
     # total ByteDance-wide) — confirmed live 2026-09-28, real US matches
     # present (San Jose/Seattle) among the top results, zero auth.
+  - name: Elastic
+    ats: ongig
+    slug: jobs.elastic.co/1509 # 384 open postings, zero auth (a Laravel
+    # Sanctum CSRF-cookie dance, not a login) — confirmed live 2026-09-28.
+    # 0 current Data-Engineer-shaped matches — a real current state, not
+    # a bug.

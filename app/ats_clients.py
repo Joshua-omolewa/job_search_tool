@@ -3029,6 +3029,95 @@ def fetch_tiktok(company_display_name: str, slug: str) -> list[dict]:
     return jobs
 
 
+_ONGIG_PAGE_SIZE = 100
+
+
+def fetch_ongig(company_display_name: str, slug: str) -> list[dict]:
+    # Ongig is a multi-tenant career-site SaaS product (also seen hosting
+    # Babbel/GoPro/Cambium/Peak6/Yum!/Arsenal Bio per a CSP header on the
+    # confirmed tenant, jobs.elastic.co) whose search backend happens to
+    # be built on Elastic's OWN Enterprise/App Search product — so this
+    # is Elastic literally being searched via Elastic's own tech, just
+    # operated by a third-party vendor. Confirmed live 2026-09-28, zero
+    # Playwright needed. `slug` is "{host}/{group_id}" — {host} is the
+    # tenant's jobs subdomain (e.g. "jobs.elastic.co"), {group_id} is
+    # that tenant's own numeric id WITHIN Ongig's shared multi-tenant
+    # index (e.g. 1509 for Elastic) — found via a browser network trace
+    # on that tenant's own site, NOT guessable/reusable across tenants
+    # without that lookup step first. Two-step auth: GET
+    # /sanctum/csrf-cookie (Laravel Sanctum SPA auth) sets an XSRF-TOKEN
+    # cookie, which is then URL-decoded and echoed back as the
+    # x-xsrf-token request header on the real search POST — an
+    # httpx.Client's cookie jar handles carrying the session cookie
+    # across both calls automatically. KNOWN LIMITATION: the per-job
+    # detail page (jobs.{host}/jobs/{id}) is a client-rendered SPA route
+    # — a plain httpx GET gets a meta-refresh-to-homepage shell, not the
+    # real content (confirmed live) — so this URL is best-effort for a
+    # real browser, not verified to resolve without one; content.raw
+    # from the search response itself is the reliable, complete
+    # description source, used directly rather than a detail fetch. No
+    # structured salary field in result_fields — only the free-text
+    # fallback applies.
+    host, _, group_id = slug.partition("/")
+    base_url = f"https://{host}"
+
+    with httpx.Client(headers={"User-Agent": USER_AGENT}, timeout=TIMEOUT) as client:
+        csrf_resp = client.get(f"{base_url}/sanctum/csrf-cookie")
+        csrf_resp.raise_for_status()
+        token = csrf_resp.cookies.get("XSRF-TOKEN")
+        if not token:
+            return []
+        search_headers = {
+            "x-xsrf-token": urllib.parse.unquote(token),
+            "x-requested-with": "XMLHttpRequest",
+            "accept": "application/json",
+            "content-type": "application/json",
+            "referer": f"{base_url}/",
+        }
+
+        def _fetch_page(page: int) -> dict:
+            resp = client.post(
+                f"{base_url}/api/appSearch",
+                json={
+                    "query": "",
+                    "result_fields": {
+                        "title": {"raw": {}}, "location": {"raw": {}}, "content": {"raw": {}}, "id": {"raw": {}},
+                    },
+                    "page": {"size": _ONGIG_PAGE_SIZE, "current": page},
+                    "filters": {"all": [{"any": [{"group_id": int(group_id)}]}, {"any": [{"live": 1}]}]},
+                },
+                headers=search_headers,
+            )
+            resp.raise_for_status()
+            return resp.json()
+
+        first = _fetch_page(1)
+        results = list(first.get("results") or [])
+        total_pages = ((first.get("meta") or {}).get("page") or {}).get("total_pages") or 1
+        for page in range(2, total_pages + 1):
+            results.extend(_fetch_page(page).get("results") or [])
+
+    jobs = []
+    seen_ids = set()
+    for r in results:
+        job_id = (r.get("id") or {}).get("raw")
+        title = (r.get("title") or {}).get("raw", "")
+        if not job_id or not title or job_id in seen_ids:
+            continue
+        seen_ids.add(job_id)
+        description = (r.get("content") or {}).get("raw", "") or ""
+        jobs.append({
+            "company": company_display_name,
+            "title": title,
+            "location": (r.get("location") or {}).get("raw", ""),
+            "url": f"{base_url}/jobs/{job_id}",
+            "posted_at": None,  # not exposed in result_fields for this engine
+            "description": description,
+            "salary": _extract_salary_from_text(description),
+        })
+    return jobs
+
+
 FETCHERS = {
     "greenhouse": fetch_greenhouse,
     "ashby": fetch_ashby,
@@ -3060,6 +3149,7 @@ FETCHERS = {
     "ukg_ultipro": fetch_ukg_ultipro,
     "humi_platform": fetch_humi_platform,
     "tiktok": fetch_tiktok,
+    "ongig": fetch_ongig,
 }
 
 

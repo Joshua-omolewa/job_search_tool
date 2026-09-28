@@ -741,10 +741,11 @@ def test_all_new_ats_types_wired_into_fetchers():
         "ukg_ultipro": ats_clients.fetch_ukg_ultipro,
         "humi_platform": ats_clients.fetch_humi_platform,
         "tiktok": ats_clients.fetch_tiktok,
+        "ongig": ats_clients.fetch_ongig,
     }
     for ats_type, fn in expected.items():
         assert ats_clients.FETCHERS[ats_type] is fn
-    print("FETCHERS: all 20 new ATS types wired in correctly — OK")
+    print("FETCHERS: all 21 new ATS types wired in correctly — OK")
 
 
 # --------------------------------------------------------------------- uber
@@ -1040,6 +1041,77 @@ def test_tiktok_paginates_and_dedupes():
         jobs = ats_clients.fetch_tiktok("TikTok", "data engineer")
     assert {j["title"] for j in jobs} == {"A", "B"}
     print("fetch_tiktok: pagination via offset — OK")
+
+
+# ---------------------------------------------------------------------- ongig
+
+def test_ongig_csrf_dance_then_paginated_search():
+    # Shape trimmed from a real live response (2026-09-28) against
+    # jobs.elastic.co (group_id 1509). Two-step: GET /sanctum/csrf-cookie
+    # sets an XSRF-TOKEN cookie, POST /api/appSearch echoes it back
+    # URL-decoded as the x-xsrf-token header — this checks both the
+    # header value and that group_id from the slug reaches the filter.
+    csrf_resp = _resp(status_code=204)
+    csrf_resp.cookies = {"XSRF-TOKEN": "abc%3D%3D"}  # URL-encoded "abc=="
+    page1 = {
+        "meta": {"page": {"total_pages": 1}},
+        "results": [{
+            "id": {"raw": "999"}, "title": {"raw": "Senior Data Engineer"},
+            "location": {"raw": "United States"},
+            "content": {"raw": "Build the platform. Compensation range: $140,000 - $180,000 annually."},
+        }],
+    }
+    mock_client = MagicMock()
+    mock_client.__enter__.return_value = mock_client
+    mock_client.get.return_value = csrf_resp
+    mock_client.post.return_value = _resp(json_data=page1)
+
+    with patch("httpx.Client", return_value=mock_client):
+        jobs = ats_clients.fetch_ongig("Elastic", "jobs.elastic.co/1509")
+
+    assert mock_client.get.call_args.args[0] == "https://jobs.elastic.co/sanctum/csrf-cookie"
+    assert mock_client.post.call_args.kwargs["headers"]["x-xsrf-token"] == "abc=="
+    assert mock_client.post.call_args.kwargs["json"]["filters"]["all"][0]["any"][0]["group_id"] == 1509
+    assert len(jobs) == 1
+    j = jobs[0]
+    assert j["title"] == "Senior Data Engineer"
+    assert j["location"] == "United States"
+    assert j["url"] == "https://jobs.elastic.co/jobs/999"
+    assert "Build the platform" in j["description"]
+    assert j["salary"] == "$140,000 - $180,000"
+    print("fetch_ongig: CSRF dance, group_id filter, basic parsing — OK")
+
+
+def test_ongig_missing_csrf_cookie_returns_empty():
+    csrf_resp = _resp(status_code=204)
+    csrf_resp.cookies = {}
+    mock_client = MagicMock()
+    mock_client.__enter__.return_value = mock_client
+    mock_client.get.return_value = csrf_resp
+
+    with patch("httpx.Client", return_value=mock_client):
+        jobs = ats_clients.fetch_ongig("Elastic", "jobs.elastic.co/1509")
+    assert jobs == []
+    mock_client.post.assert_not_called()
+    print("fetch_ongig: missing XSRF-TOKEN cookie -> [], no crash — OK")
+
+
+def test_ongig_paginates_across_pages():
+    csrf_resp = _resp(status_code=204)
+    csrf_resp.cookies = {"XSRF-TOKEN": "abc"}
+    page1 = {"meta": {"page": {"total_pages": 2}},
+             "results": [{"id": {"raw": "1"}, "title": {"raw": "A"}, "location": {"raw": ""}, "content": {"raw": ""}}]}
+    page2 = {"meta": {"page": {"total_pages": 2}},
+             "results": [{"id": {"raw": "2"}, "title": {"raw": "B"}, "location": {"raw": ""}, "content": {"raw": ""}}]}
+    mock_client = MagicMock()
+    mock_client.__enter__.return_value = mock_client
+    mock_client.get.return_value = csrf_resp
+    mock_client.post.side_effect = [_resp(json_data=page1), _resp(json_data=page2)]
+
+    with patch("httpx.Client", return_value=mock_client):
+        jobs = ats_clients.fetch_ongig("Elastic", "jobs.elastic.co/1509")
+    assert {j["title"] for j in jobs} == {"A", "B"}
+    print("fetch_ongig: pagination across pages — OK")
 
 
 # ------------------------------------------------------------------------ ibm
