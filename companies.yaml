@@ -102,7 +102,7 @@ companies:
     slug: vanta
   - name: Treewalk
     ats: workable
-    slug: treewalk # confirmed via apply.workable.com/api/v1/widget/accounts/treewalk — currently 0 open jobs
+    slug: treewalk-accounting # corrected 2026-09-27: "treewalk" is a real but dead/empty Workable account (0 jobs); "treewalk-accounting" ("Treewalk Consulting Inc.") is the real active board — 7 open jobs confirmed live, including a Senior Software Engineer role
   - name: Seequent
     ats: workable
     slug: seequent
@@ -145,6 +145,13 @@ companies:
     slug: alpaca
 
   # extended from Claude
+  # Removed 2026-09-27: "Konrad Group" / smartrecruiters / "KonradGroup" —
+  # real slug never existed (totalFound:0, and no evidence this company
+  # ever used SmartRecruiters). Their real careers page (konrad.com/careers)
+  # is a static Next.js page with no ATS integration of any kind (checked
+  # its rendered DOM and every JS bundle for a known ATS API call) — either
+  # 0 current openings or postings live somewhere off this tool's list
+  # (e.g. LinkedIn only).
   - name: Wealthsimple
     ats: ashby
     slug: wealthsimple
@@ -187,9 +194,6 @@ companies:
   - name: Deep Genomics
     ats: lever
     slug: deepgenomics
-  - name: Konrad Group
-    ats: smartrecruiters
-    slug: KonradGroup
   - name: PointClickCare
     ats: lever
     slug: pointclickcare
@@ -1329,3 +1333,235 @@ companies:
   #     bundle whose real filename can't be discovered without executing JS
   #     in a real browser, behind Akamai Bot Manager on top of that. No
   #     viable unauthenticated path found.
+
+  # --- Added 2026-09-27: companiesmarketcap.com "largest tech companies by
+  # market cap" scan (page 1, top 100), US-HQ'd companies not already
+  # covered — every slug below verified live end-to-end. Four of these
+  # (Uber, Seagate Technology, Fortinet, Qualcomm) were previously checked
+  # and NOT added because they ran a platform this pipeline didn't support
+  # yet — re-checked now that oraclecloud/successfactors/eightfold exist;
+  # Fortinet's old "iCIMS" lead was also corrected here — that was a
+  # same-named but unrelated company (a casino operator), not Fortinet's
+  # real board. ---
+  - name: Applied Materials
+    ats: workday
+    slug: amat.wd1/External # 2000 open reqs (page-count cap, not necessarily exact)
+  - name: Lam Research
+    ats: eightfold
+    slug: careers.lamresearch.com/lamresearch.com # search API 403s (PCSX) — sitemap fallback confirmed live, ~1380 postings
+  - name: Booking Holdings (Booking.com)
+    ats: smartrecruiters
+    slug: Bookingcom1 # 4 open postings
+  - name: Equinix
+    ats: workday
+    slug: equinix.wd1/External # 273 open reqs
+  - name: Lumentum
+    ats: workday
+    slug: lumentum.wd5/LITE # 240 open reqs
+  - name: TE Connectivity
+    ats: successfactors
+    slug: careers.te.com # 2283 postings in the XML feed
+  - name: Garmin
+    ats: icims
+    slug: careers.garmin.com # 409 open jobs (iCIMS Attract front-end)
+  - name: Uber
+    ats: oraclecloud
+    slug: iaziqy.fa.ocs.oraclecloud.com/UberCareers # 540 open reqs — corrects the earlier "Oracle Recruiting Cloud/HCM, not verified live" note
+  - name: Seagate Technology
+    ats: successfactors
+    slug: seagatecareers.com # 272 postings — corrects the earlier "SuccessFactors, not verified live" note (a bamboohr slug guess for "seagate" was a false positive, unrelated company)
+  - name: Fortinet
+    ats: oraclecloud
+    slug: edel.fa.us2.oraclecloud.com/CX_2001 # 933 open reqs — corrects the earlier "iCIMS" lead, which was actually an unrelated casino operator (Fortiss LLC) sharing a similar subdomain name
+  - name: Qualcomm
+    ats: eightfold
+    slug: careers.qualcomm.com/qualcomm.com # search API 403s (PCSX) — sitemap fallback confirmed live; old Workday tenant re-confirmed dead (total:0). NOTE: the generic app.eightfold.ai host also answers but its /careers/sitemap.xml silently returns EIGHTFOLD'S OWN jobs instead of Qualcomm's unless a "?domain=" query param is added — careers.qualcomm.com is Qualcomm's own dedicated host and doesn't have that gotcha, use it instead
+
+  # --- Added 2026-09-27: Canada's Top 10 Largest Tech Companies list ---
+  - name: Celestica
+    ats: successfactors
+    slug: careers.celestica.com # 1156 postings in the XML feed
+  - name: Constellation Software
+    ats: greenhouse
+    slug: constellationsoftwareinc # real, live board — but only 1 job total at check time ("Growth Specialist", not eng), since Constellation is a decentralized holding company of 1000+ independently-operated business units (Volaris, Perseus, Topicus, etc.) that mostly hire through their own separate boards, not this thin corporate-level one
+  - name: Descartes Systems Group
+    ats: successfactors
+    slug: jobs.descartes.com # 34 postings in the XML feed
+
+  # --- Added 2026-09-27: Canada_Tech_Company.xlsx shared sheet — this one
+  # ships direct "Open Roles Link" URLs per company, several of which
+  # already revealed a known ATS pattern (Workday/Greenhouse/Workable
+  # subdomain) without needing separate research; each still verified live
+  # before being added here. ---
+  - name: BMO
+    ats: workday
+    slug: bmo.wd3/External # 1012 open reqs (sheet's own URL, verified live as-is)
+  - name: Planet Labs
+    ats: greenhouse
+    slug: planetlabs # 120 open jobs
+  - name: Nuvei
+    ats: workable
+    slug: nuvei # 74 open jobs
+  - name: Humi
+    ats: workable
+    slug: humi # real, live board — 0 open jobs at check time
+
+  # --- Added 2026-09-27: Canada_Tech_Company.xlsx sheet, continued (the
+  # remaining ~68 companies whose sheet URL needed real research) — every
+  # slug below independently re-verified live. Several sheet URLs turned out
+  # stale (CIBC/RBC/Sun Life/TD's Workday site names had all changed since the
+  # sheet was made) or pointed at the wrong ATS entirely (GitHub moved off
+  # Greenhouse to iCIMS) — corrected below, not copied as-is.
+  # Not added: SAP (real board IS SuccessFactors, career5.successfactors.eu,
+  # but uses an older XML schema — <Job-Listing>/<Job>/<JobTitle> — different
+  # from the <item>/<g:location> "Google for Jobs" shape fetch_successfactors
+  # parses; needs separate parsing code not yet written). Toggl (real board IS
+  # Ashby, jobs.ashbyhq.com/toggl, but that org disabled the public
+  # api.ashbyhq.com endpoint fetch_ashby uses — jobs only reachable by scraping
+  # the hosted page's embedded JSON, needs separate parsing code not yet
+  # written). Element AI and MindGeek are already covered under their current
+  # real names/boards (ServiceNow acquired Element AI; MindGeek rebranded to
+  # Aylo, already in this file under "Aylo").
+  # Greenhouse
+  - name: Automattic
+    ats: greenhouse
+    slug: automatticcareers # 16 jobs
+  - name: Canonical
+    ats: greenhouse
+    slug: canonical # 306 jobs
+  - name: DigitalOcean
+    ats: greenhouse
+    slug: digitalocean98 # 164 jobs
+  - name: DoorDash
+    ats: greenhouse
+    slug: doordashusa # 459 jobs
+  - name: GitLab
+    ats: greenhouse
+    slug: gitlab # 199 jobs
+  - name: Grafana Labs
+    ats: greenhouse
+    slug: grafanalabs # 148 jobs
+  - name: JetBrains
+    ats: greenhouse
+    slug: jetbrains # 65 jobs
+  - name: Mozilla
+    ats: greenhouse
+    slug: mozilla # 77 jobs
+  - name: Netlify
+    ats: greenhouse
+    slug: netlify # 4 jobs
+  - name: PagerDuty
+    ats: greenhouse
+    slug: pagerduty # 51 jobs
+  - name: Riot Games
+    ats: greenhouse
+    slug: riotgames # 165 jobs
+  - name: Vercel
+    ats: greenhouse
+    slug: vercel # 88 jobs
+  - name: Wikimedia Foundation
+    ats: greenhouse
+    slug: wikimedia # 13 jobs
+  - name: Zynga
+    ats: greenhouse
+    slug: zyngacareers # 44 jobs
+  - name: Galvanize (by Diligent)
+    ats: greenhouse
+    slug: diligentcorporation # 111 jobs
+
+  # Ashby
+  - name: DuckDuckGo
+    ats: ashby
+    slug: duck-duck-go # 11 jobs
+  - name: Notion
+    ats: ashby
+    slug: notion # 128 jobs
+  - name: Sentry
+    ats: ashby
+    slug: sentry # 41 jobs
+  - name: Zapier
+    ats: ashby
+    slug: zapier # 10 jobs
+
+  # SmartRecruiters
+  - name: Keywords Studios
+    ats: smartrecruiters
+    slug: KeywordsStudios # 35 postings
+  - name: Ubisoft
+    ats: smartrecruiters
+    slug: Ubisoft2 # 310 postings
+
+  # Rippling
+  - name: Dialogue Health
+    ats: rippling
+    slug: dialogue-en # 51 rows
+
+  # Workday
+  - name: Accenture
+    ats: workday
+    slug: accenture.wd103/AccentureCareers # total=2000 (pod verified: wd103)
+  - name: BlackBerry
+    ats: workday
+    slug: bb.wd3/BlackBerry # total=22 (pod verified: wd3)
+  - name: CIBC
+    ats: workday
+    slug: cibc.wd3/search # total=513 (pod verified: wd3)
+  - name: RBC
+    ats: workday
+    slug: rbc.wd3/RBCGLOBAL1 # total=1162 (pod verified: wd3)
+  - name: Sun Life
+    ats: workday
+    slug: sunlife.wd3/Experienced-Jobs # total=286 (pod verified: wd3)
+  - name: TD
+    ats: workday
+    slug: td.wd3/TD_Bank_Careers # total=1689 (pod verified: wd3)
+  - name: Fidelity Canada
+    ats: workday
+    slug: fil.wd3/fidelitycanada # total=155 (pod verified: wd3)
+  - name: Red Hat
+    ats: workday
+    slug: redhat.wd5/jobs # total=146 (pod verified: wd5)
+  - name: Unity
+    ats: workday
+    slug: unitytech.wd1/Unity # total=125 (pod verified: wd1)
+  - name: WB Games Montreal
+    ats: workday
+    slug: warnerbros.wd5/global # total=305 (pod verified: wd5)
+  - name: Rakuten Kobo
+    ats: workday
+    slug: rakuten.wd1/Kobo # total=11 (pod verified: wd1)
+  - name: BlackBerry QNX
+    ats: workday
+    slug: bb.wd3/QNX # total=19 (pod verified: wd3)
+
+  # SuccessFactors
+  - name: Deloitte
+    ats: successfactors
+    slug: careers.deloitte.ca # 593 items in feed
+  - name: Scotiabank
+    ats: successfactors
+    slug: jobs.scotiabank.com # 1612 items in feed
+
+  # iCIMS
+  - name: GitHub
+    ats: icims
+    slug: githubinc.jibeapply.com # 80 totalCount
+  - name: KPMG
+    ats: icims
+    slug: careers.kpmg.ca # 442 totalCount
+  - name: Kinaxis
+    ats: icims
+    slug: join.kinaxis.com # 109 totalCount
+  - name: Tasktop (by Planview)
+    ats: icims
+    slug: careers.planview.com # 43 totalCount
+
+  # Eightfold
+  - name: Ericsson
+    ats: eightfold
+    slug: jobs.ericsson.com/ericsson.com # list API 403 (expected), sitemap fallback OK, ~572 urls, 572 domain-scoped
+
+  # Avature
+  - name: Bloomberg
+    ats: avature
+    slug: bloomberg # 350 results

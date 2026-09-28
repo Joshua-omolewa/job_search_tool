@@ -216,6 +216,49 @@ def test_eightfold_falls_back_to_sitemap_on_403():
     print("fetch_eightfold: search 403 falls back to sitemap + per-job detail — OK")
 
 
+def test_eightfold_sitemap_fallback_filters_out_other_tenants_jobs():
+    # Real bug caught live 2026-09-27: Qualcomm's eightfold host is the
+    # generic SHARED app.eightfold.ai (not its own dedicated subdomain),
+    # and that shared host's /careers/sitemap.xml silently mixes in
+    # postings for OTHER companies (Eightfold's own jobs, in the real
+    # case) unless filtered by the `domain=` query param each entry's
+    # <loc> tag echoes — this fixture has one job for the target domain
+    # and one for an unrelated one, sharing the same host.
+    sitemap_xml = (
+        "<urlset>"
+        "<url><loc>https://app.eightfold.ai/careers/job/"
+        "111-senior-data-engineer-remote?domain=qualcomm.com</loc></url>"
+        "<url><loc>https://app.eightfold.ai/careers/job/"
+        "222-sr-ux-designer-bangalore?domain=eightfold.ai</loc></url>"
+        "</urlset>"
+    )
+    detail_json = {
+        "name": "Senior Data Engineer", "locations": ["San Diego, CA"],
+        "job_description": "<p>JD</p>", "canonicalPositionUrl": "https://app.eightfold.ai/careers/job/111",
+        "t_create": 1700000000,
+    }
+
+    def _get(url, **kwargs):
+        if "/api/apply/v2/jobs/222" in url:
+            raise AssertionError("must not fetch detail for a job belonging to a different tenant")
+        if "/api/apply/v2/jobs/111" in url:
+            return _resp(json_data=detail_json)
+        if "/api/apply/v2/jobs" in url:
+            return _resp(status_code=403, json_data={"message": "Not authorized for PCSX"})
+        if "sitemap.xml" in url:
+            return _resp(text=sitemap_xml)
+        raise AssertionError(f"unexpected URL {url}")
+
+    with patch("httpx.get", side_effect=_get), \
+         patch("app.filters.title_is_relevant", return_value=True), \
+         patch("app.filters.location_is_allowed", return_value=True):
+        jobs = ats_clients.fetch_eightfold("Qualcomm", "app.eightfold.ai/qualcomm.com")
+
+    assert len(jobs) == 1
+    assert jobs[0]["title"] == "Senior Data Engineer"
+    print("fetch_eightfold: sitemap fallback on a shared host filters out other tenants' jobs — OK")
+
+
 # --------------------------------------------------------------- cornerstone
 
 def test_cornerstone_session_then_list_then_detail():
@@ -287,6 +330,40 @@ def test_avature_list_then_gated_detail_resolves_location():
     assert j["location"] == "Austin, United States"
     assert "build data pipelines" in j["description"]
     print("fetch_avature: HTML list + gated detail resolves location — OK")
+
+
+def test_avature_single_location_field_tenant():
+    # Real bug caught live 2026-09-27: Bloomberg's Avature tenant uses one
+    # combined "Location" field instead of separate "City"/"Country"
+    # fields like Synopsys — checking only City/Country produced an empty
+    # location for every single Bloomberg posting, which meant EVERY job
+    # got silently dropped by the final "no location, no job" filter, even
+    # ones that were real, gated, relevant matches with a full description.
+    list_html = (
+        '<article class="article article--result">'
+        '<a class="link" href="https://acme.avature.net/careers/JobDetail/Data-Engineer/1">Data Engineer</a>'
+        "</article>"
+    )
+    detail_html = (
+        '<div class="article__content__view__field">'
+        '<div class="article__content__view__field__label">Location</div>'
+        '<div class="article__content__view__field__value">London</div>'
+        "</div>"
+        "Job Description and Requirements build data pipelines"
+    )
+
+    def _get(url, **kwargs):
+        if "JobDetail" in url:
+            return _resp(text=detail_html)
+        return _resp(text=f"1 results {list_html}")
+
+    with patch("httpx.get", side_effect=_get), \
+         patch("app.filters.title_is_relevant", return_value=True):
+        jobs = ats_clients.fetch_avature("Bloomberg", "acme")
+
+    assert len(jobs) == 1
+    assert jobs[0]["location"] == "London"
+    print("fetch_avature: single-field \"Location\" tenants (not City/Country) resolve too — OK")
 
 
 def test_avature_ungated_job_dropped_for_missing_location():

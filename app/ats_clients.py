@@ -1387,14 +1387,28 @@ def fetch_eightfold(company_display_name: str, slug: str) -> list[dict]:
 
         return jobs
 
-    # Search endpoint blocked (403) — fall back to the sitemap.
+    # Search endpoint blocked (403) — fall back to the sitemap. `domain`
+    # MUST be passed here too: some tenants (Qualcomm confirmed live
+    # 2026-09-27) are hosted on the generic shared app.eightfold.ai rather
+    # than their own dedicated subdomain, and that shared host's
+    # /careers/sitemap.xml silently returns EIGHTFOLD'S OWN jobs instead of
+    # an error if `domain` is left off — a real, not hypothetical, way to
+    # end up quietly attributing a different company's postings to this
+    # one. Each sitemap `<loc>` also echoes `?domain=...`, so filtering on
+    # that is a second, cheap line of defense against the same failure
+    # mode even if some other tenant configuration ignores the param.
     sitemap = httpx.get(
         f"https://{host}/careers/sitemap.xml",
+        params={"domain": domain},
         headers={"User-Agent": USER_AGENT},
         timeout=TIMEOUT,
     )
     sitemap.raise_for_status()
-    job_ids = [(m.group(1), m.group(2).replace("-", " ")) for m in _EIGHTFOLD_SITEMAP_JOB_RE.finditer(sitemap.text)]
+    job_ids = [
+        (m.group(1), m.group(2).replace("-", " "))
+        for m in _EIGHTFOLD_SITEMAP_JOB_RE.finditer(sitemap.text)
+        if f"domain={domain}" in sitemap.text[m.start():m.start() + 300]
+    ]
 
     def _fetch_and_gate(job_id, slug_title):
         if slug_title and not filters.title_is_relevant(slug_title):
@@ -2037,14 +2051,26 @@ _AVATURE_FIELD_RE = re.compile(
 def _fetch_avature_detail(tenant: str, path: str) -> dict:
     """Avature has no JSON API at all — the job-detail page is plain
     server-rendered HTML with a consistent label/value div structure per
-    field (confirmed live on Synopsys). Best-effort: any parse failure
-    means an empty description, same as every other detail fetch here."""
+    field, but the LABELS a given tenant uses for location are not
+    standardized: Synopsys splits it into separate "City"/"Country"
+    fields, Bloomberg uses one combined "Location" field instead
+    (confirmed live on both, real postings) — checking only City/Country
+    silently produced an empty location, and therefore no fetched job at
+    all, for every Bloomberg posting. Falls back through several known
+    label spellings rather than assuming one tenant's shape is universal.
+    Best-effort: any parse failure means an empty description, same as
+    every other detail fetch here."""
     try:
         resp = httpx.get(f"https://{tenant}.avature.net{path}", headers={"User-Agent": USER_AGENT}, timeout=TIMEOUT)
         resp.raise_for_status()
         fields = {label.strip(): value.strip() for label, value in _AVATURE_FIELD_RE.findall(resp.text)}
         city, country = fields.get("City", ""), fields.get("Country", "")
         location = ", ".join(p for p in (city, country) if p)
+        if not location:
+            for key in ("Location", "Locations", "City/Country", "Primary Location"):
+                if fields.get(key):
+                    location = fields[key]
+                    break
         # Starts from the first field block rather than the "Job
         # Description" label specifically: some custom fields (e.g. a
         # "Base Salary Range: $X - $Y" block, confirmed live on a real
