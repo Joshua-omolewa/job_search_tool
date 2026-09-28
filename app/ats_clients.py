@@ -2951,6 +2951,84 @@ def fetch_humi_platform(company_display_name: str, slug: str) -> list[dict]:
     return [j for j in jobs if j["location"]]
 
 
+_TIKTOK_PAGE_SIZE = 50
+_TIKTOK_LIST_WORKERS = 8
+
+
+def _tiktok_location(city_info: dict | None) -> str:
+    parts = []
+    node = city_info or {}
+    while node:
+        name = node.get("en_name")
+        if name:
+            parts.append(name)
+        node = node.get("parent") or {}
+    return ", ".join(parts)
+
+
+def fetch_tiktok(company_display_name: str, slug: str) -> list[dict]:
+    # TikTok/ByteDance's careers site (careers.tiktok.com) is a wrapper
+    # around a separate ByteDance-wide site (lifeattiktok.com) whose own
+    # frontend calls a real, public, unauthenticated JSON API — confirmed
+    # live 2026-09-28, zero auth, no Playwright needed. `slug` is a
+    # free-text keyword search matched server-side (confirmed live: a
+    # `keyword` param scopes 4258 total postings down to 1725 for "data
+    # engineer" — NOT the same as the "query"/"key_word"/"title" params,
+    # which were all silently ignored and returned the unfiltered full
+    # set instead, same class of gotcha as Amazon's country[] vs country
+    # param). Full plain-text description comes in the same response, no
+    # per-job detail fetch needed. `job_post_info`'s salary fields
+    # (min_salary/max_salary/currency) were null on every posting
+    # sampled — only the free-text fallback applies.
+    def _fetch_page(offset: int) -> tuple[list, int]:
+        resp = httpx.post(
+            "https://api.lifeattiktok.com/api/v1/public/supplier/search/job/posts",
+            json={"limit": _TIKTOK_PAGE_SIZE, "offset": offset, "keyword": slug},
+            headers={"User-Agent": USER_AGENT, "website-path": "tiktok", "Content-Type": "application/json"},
+            timeout=TIMEOUT,
+        )
+        resp.raise_for_status()
+        data = (resp.json().get("data")) or {}
+        return data.get("job_post_list") or [], data.get("count") or 0
+
+    first_page, total = _fetch_page(0)
+    if not first_page:
+        return []
+    all_posts = list(first_page)
+
+    if total > len(all_posts):
+        offsets = range(_TIKTOK_PAGE_SIZE, total, _TIKTOK_PAGE_SIZE)
+        with ThreadPoolExecutor(max_workers=_TIKTOK_LIST_WORKERS) as pool:
+            for page_posts, _ in pool.map(_fetch_page, offsets):
+                all_posts.extend(page_posts)
+
+    jobs = []
+    seen_ids = set()
+    for j in all_posts:
+        job_id = j.get("id")
+        title = j.get("title", "")
+        if not job_id or not title or job_id in seen_ids:
+            continue
+        seen_ids.add(job_id)
+        description = "\n".join(p for p in (j.get("description"), j.get("requirement")) if p)
+        salary_info = j.get("job_post_info") or {}
+        salary = (
+            _format_money_range(salary_info.get("min_salary"), salary_info.get("max_salary"),
+                                 salary_info.get("currency"), None)
+            if (salary_info.get("min_salary") or salary_info.get("max_salary")) else None
+        ) or _extract_salary_from_text(description)
+        jobs.append({
+            "company": company_display_name,
+            "title": title,
+            "location": _tiktok_location(j.get("city_info")),
+            "url": f"https://lifeattiktok.com/search/{job_id}",
+            "posted_at": None,  # not present in this API's response
+            "description": description,
+            "salary": salary,
+        })
+    return jobs
+
+
 FETCHERS = {
     "greenhouse": fetch_greenhouse,
     "ashby": fetch_ashby,
@@ -2981,6 +3059,7 @@ FETCHERS = {
     "kula": fetch_kula,
     "ukg_ultipro": fetch_ukg_ultipro,
     "humi_platform": fetch_humi_platform,
+    "tiktok": fetch_tiktok,
 }
 
 

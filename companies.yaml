@@ -4,7 +4,7 @@
 #   | "oraclecloud" | "successfactors" | "icims" | "eightfold" | "cornerstone"
 #   | "avature" | "hrdepartment" | "gr8people" | "google" | "apple" | "shopify"
 #   | "meta" | "amazon" | "ibm" | "uber" | "atlassian" | "kula" | "ukg_ultipro"
-#   | "humi_platform"
+#   | "humi_platform" | "tiktok"
 # slug: the identifier used in that ATS's public API URL
 #   - workday is the odd one out: slug is "{tenant}.wd{N}/{site}", read off
 #     the company's careers URL — e.g.
@@ -161,6 +161,15 @@
 #     a real schema.org JobPosting JSON-LD block with structured
 #     location AND salary fields — a better data source than most other
 #     ATS types in this file, not just a fallback.
+#   - tiktok's slug is a free-text keyword search matched server-side
+#     (e.g. "data engineer") — added 2026-09-28, found via network
+#     capture on careers.tiktok.com (which wraps a separate ByteDance-
+#     wide site, lifeattiktok.com). The real gotcha: a `keyword` param
+#     genuinely filters server-side (4258 total postings -> 1725 for
+#     "data engineer") — `query`/`key_word`/`title` all looked
+#     plausible but are silently ignored, same param-name-guessing trap
+#     as Amazon's country[] vs country. No structured salary field
+#     populated on any posting sampled, only the free-text fallback.
 #
 # The list below is the original author's real target list (Alberta/Canada
 # tech companies), kept as-is as a working example of the format. Add or
@@ -1821,3 +1830,8 @@ companies:
   - name: SpaceX
     ats: greenhouse
     slug: spacex # 2594 open jobs, 11 Data Engineer-shaped matches confirmed live
+  - name: TikTok
+    ats: tiktok
+    slug: data engineer # 1725 postings match this keyword server-side (of 4258
+    # total ByteDance-wide) — confirmed live 2026-09-28, real US matches
+    # present (San Jose/Seattle) among the top results, zero auth.

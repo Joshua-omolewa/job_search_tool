@@ -740,10 +740,11 @@ def test_all_new_ats_types_wired_into_fetchers():
         "kula": ats_clients.fetch_kula,
         "ukg_ultipro": ats_clients.fetch_ukg_ultipro,
         "humi_platform": ats_clients.fetch_humi_platform,
+        "tiktok": ats_clients.fetch_tiktok,
     }
     for ats_type, fn in expected.items():
         assert ats_clients.FETCHERS[ats_type] is fn
-    print("FETCHERS: all 19 new ATS types wired in correctly — OK")
+    print("FETCHERS: all 20 new ATS types wired in correctly — OK")
 
 
 # --------------------------------------------------------------------- uber
@@ -995,6 +996,50 @@ def test_humi_platform_detail_fetch_failure_degrades_to_empty():
         result = ats_clients._fetch_humi_platform_detail("https://ecopiatech.applytojobs.ca/engineering/99999")
     assert result == {"location": "", "posted_at": None, "description": "", "salary": None}
     print("_fetch_humi_platform_detail: request failure -> empty dict, no crash — OK")
+
+
+# --------------------------------------------------------------------- tiktok
+
+def test_tiktok_basic_parsing_and_nested_location():
+    # Shape trimmed from a real live response (2026-09-28) against
+    # api.lifeattiktok.com — city_info is a linked-list of {en_name,
+    # parent} nodes (city -> state/province -> country), walked here into
+    # one "City, State, Country" string.
+    search_json = {"code": 0, "data": {"count": 1, "job_post_list": [{
+        "id": "7117084434700110094",
+        "title": "Data Engineer, E-Commerce",
+        "description": "Build pipelines.",
+        "requirement": "5+ years SQL. Compensation range: $150,000 - $200,000 annually.",
+        "city_info": {"en_name": "San Jose", "parent": {"en_name": "California",
+                                                          "parent": {"en_name": "United States of America"}}},
+        "job_post_info": {"min_salary": None, "max_salary": None, "currency": None},
+    }]}}
+    with patch("httpx.post", return_value=_resp(json_data=search_json)) as mock_post:
+        jobs = ats_clients.fetch_tiktok("TikTok", "data engineer")
+
+    assert mock_post.call_args.kwargs["json"]["keyword"] == "data engineer"
+    assert len(jobs) == 1
+    j = jobs[0]
+    assert j["title"] == "Data Engineer, E-Commerce"
+    assert j["location"] == "San Jose, California, United States of America"
+    assert j["url"] == "https://lifeattiktok.com/search/7117084434700110094"
+    assert "Build pipelines" in j["description"]
+    assert j["salary"] == "$150,000 - $200,000"
+    print("fetch_tiktok: basic parsing, nested city_info walk, keyword param — OK")
+
+
+def test_tiktok_paginates_and_dedupes():
+    page1 = {"code": 0, "data": {"count": 2, "job_post_list": [
+        {"id": "1", "title": "A", "description": "", "requirement": "", "city_info": {}, "job_post_info": {}},
+    ]}}
+    page2 = {"code": 0, "data": {"count": 2, "job_post_list": [
+        {"id": "2", "title": "B", "description": "", "requirement": "", "city_info": {}, "job_post_info": {}},
+    ]}}
+    with patch("httpx.post", side_effect=[_resp(json_data=page1), _resp(json_data=page2)]), \
+         patch("app.ats_clients._TIKTOK_PAGE_SIZE", 1):
+        jobs = ats_clients.fetch_tiktok("TikTok", "data engineer")
+    assert {j["title"] for j in jobs} == {"A", "B"}
+    print("fetch_tiktok: pagination via offset — OK")
 
 
 # ------------------------------------------------------------------------ ibm
