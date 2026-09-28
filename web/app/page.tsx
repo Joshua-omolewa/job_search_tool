@@ -5,6 +5,7 @@ import {Job, SaveState, SortKey} from "@/app/types";
 import Toolbar from "@/app/components/Toolbar";
 import JobsTable from "@/app/components/JobsTable";
 import JobDetailPanel from "@/app/components/JobDetailPanel";
+import {daysAgo, parsePostedDate} from "@/lib/parseDate";
 
 export default function Page() {
   const [jobs, setJobs] = useState<Job[]>([]);
@@ -16,6 +17,8 @@ export default function Page() {
   const [locationFilter, setLocationFilter] = useState("");
   const [sourceFilter, setSourceFilter] = useState("all");
   const [search, setSearch] = useState("");
+  const [datePostedFilter, setDatePostedFilter] = useState("all");
+  const [minScoreFilter, setMinScoreFilter] = useState("");
 
   const [sortKey, setSortKey] = useState<SortKey>("match_score");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
@@ -64,6 +67,18 @@ export default function Page() {
         const hay = `${j.company} ${j.title}`.toLowerCase();
         if (!hay.includes(search.toLowerCase())) return false;
       }
+      if (datePostedFilter !== "all") {
+        const date = parsePostedDate(j.posted_at);
+        // No parseable date -> can't confirm it's within the window, same
+        // as an empty location never matching a location search.
+        if (!date) return false;
+        const maxDaysAgo = datePostedFilter === "today" ? 0 : Number(datePostedFilter);
+        if (daysAgo(date) > maxDaysAgo) return false;
+      }
+      if (minScoreFilter !== "") {
+        const min = Number(minScoreFilter);
+        if (j.match_score == null || j.match_score < min) return false;
+      }
       return true;
     });
 
@@ -82,7 +97,10 @@ export default function Page() {
       return 0;
     });
     return r;
-  }, [jobs, aiStatusFilter, myStatusFilter, locationFilter, sourceFilter, search, sortKey, sortDir]);
+  }, [
+    jobs, aiStatusFilter, myStatusFilter, locationFilter, sourceFilter, search,
+    datePostedFilter, minScoreFilter, sortKey, sortDir,
+  ]);
 
   // Sources are whatever companies.yaml/aggregators.yaml actually produced
   // (10+ ATS types, 7+ aggregator types and growing) — derived from the
@@ -148,6 +166,10 @@ export default function Page() {
         sourceOptions={sourceOptions}
         search={search}
         onSearchChange={setSearch}
+        datePostedFilter={datePostedFilter}
+        onDatePostedFilterChange={setDatePostedFilter}
+        minScoreFilter={minScoreFilter}
+        onMinScoreFilterChange={setMinScoreFilter}
         count={rows.length}
         total={jobs.length}
         onRefresh={load}

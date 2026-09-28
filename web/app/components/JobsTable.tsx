@@ -1,6 +1,7 @@
 import {MY_STATUS_LABEL, MY_STATUS_VALUES} from "@/app/constants";
 import {Job, SortDir, SortKey} from "@/app/types";
 import StatusBadge from "@/app/components/StatusBadge";
+import {daysAgo, parsePostedDate} from "@/lib/parseDate";
 
 const COLUMNS: [SortKey, string][] = [
   ["company", "Company"], ["title", "Title"], ["location", "Location"],
@@ -8,25 +9,14 @@ const COLUMNS: [SortKey, string][] = [
   ["my_status", "My status"], ["posted_at", "Posted"], ["source", "Source"],
 ];
 
-// posted_at is usually an ISO-8601 string, but some ATS sources hand back a
-// raw epoch timestamp (seconds or millis) instead — normalize both before
-// computing how long ago that date was ("Today", "3 days ago", "1 month
-// ago", ...). Compares calendar days rather than raw milliseconds so a
-// job posted this morning still reads as "Today" this evening.
+// "Today", "3 days ago", "1 month ago", ... — see lib/parseDate.ts for how
+// posted_at (ISO string or raw epoch) turns into a real Date and a
+// calendar-day count, shared with the toolbar's date-posted filter so
+// both agree on what a given value means.
 function formatRelativeDate(postedAt: string | null): string {
-  if (!postedAt) return "";
-  let date: Date;
-  if (/^\d+$/.test(postedAt)) {
-    const n = Number(postedAt);
-    const ms = n < 1e12 ? n * 1000 : n;
-    date = new Date(ms);
-  } else {
-    date = new Date(postedAt);
-  }
-  if (isNaN(date.getTime())) return "";
-
-  const startOfDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
-  const diffDays = Math.round((startOfDay(new Date()) - startOfDay(date)) / 86400000);
+  const date = parsePostedDate(postedAt);
+  if (!date) return "";
+  const diffDays = daysAgo(date);
 
   if (diffDays <= 0) return "Today";
   if (diffDays === 1) return "1 day ago";

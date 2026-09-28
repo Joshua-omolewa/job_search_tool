@@ -12,6 +12,10 @@ type ToolbarProps = {
   sourceOptions: string[];
   search: string;
   onSearchChange: (value: string) => void;
+  datePostedFilter: string;
+  onDatePostedFilterChange: (value: string) => void;
+  minScoreFilter: string;
+  onMinScoreFilterChange: (value: string) => void;
   count: number;
   total: number;
   onRefresh: () => void;
@@ -23,6 +27,8 @@ const Toolbar = ({
   locationFilter, onLocationFilterChange,
   sourceFilter, onSourceFilterChange, sourceOptions,
   search, onSearchChange,
+  datePostedFilter, onDatePostedFilterChange,
+  minScoreFilter, onMinScoreFilterChange,
   count, total, onRefresh,
 }: ToolbarProps) => {
   return (
@@ -48,6 +54,17 @@ const Toolbar = ({
         </select>
       </label>
       <label>
+        Min score
+        <input
+          type="number"
+          min={0}
+          max={100}
+          value={minScoreFilter}
+          onChange={(e) => onMinScoreFilterChange(e.target.value)}
+          placeholder="0-100"
+        />
+      </label>
+      <label>
         Location
         <input
           type="search"
@@ -55,6 +72,16 @@ const Toolbar = ({
           onChange={(e) => onLocationFilterChange(e.target.value)}
           placeholder="city, state, remote..."
         />
+      </label>
+      <label>
+        Date posted
+        <select value={datePostedFilter} onChange={(e) => onDatePostedFilterChange(e.target.value)}>
+          <option value="all">Any time</option>
+          <option value="today">Today</option>
+          <option value="7">Last 7 days</option>
+          <option value="30">Last 30 days</option>
+          <option value="90">Last 90 days</option>
+        </select>
       </label>
       <label>
         Source
